@@ -209,20 +209,46 @@ def find_king_positions_from_board(board):
                 return wk, bk
     return wk, bk
 
+def _position_key(gs, white_to_move):
+    """Hashable key describing the position content relevant to attack
+    generation: board layout, which side's attacks are being asked for,
+    the en-passant target square, and castling rights. This replaces
+    id(gs.board), which never changes because GameState mutates the
+    board in place -- so it can't tell two different positions apart."""
+    board_tuple = tuple(cell for row in gs.board for cell in row)
+    cr = gs.currentCastlingRights
+    return (
+        white_to_move,
+        board_tuple,
+        gs.enpassantPossible,
+        cr.wks, cr.bks, cr.wqs, cr.bqs,
+    )
+
+
 def get_all_attacks(gs, white_to_move):
     """Cached attack generation"""
-    cache_key = f"attacks_{white_to_move}_{id(gs.board)}"
+    cache_key = _position_key(gs, white_to_move)
     if hasattr(gs, '_attack_cache') and cache_key in gs._attack_cache:
         return gs._attack_cache[cache_key]
-    
+
     original = gs.whiteToMove
+    original_ep = gs.enpassantPossible
     gs.whiteToMove = white_to_move
+    # En passant is only a real option for whichever side is actually on
+    # move. When we're asking about the side that is NOT really on move
+    # (a hypothetical "what could this side do" query), the live
+    # enpassantPossible square belongs to a different context and must be
+    # suppressed -- otherwise getPawnMove() can manufacture a bogus
+    # en-passant capture that corrupts the board on make/undo.
+    if white_to_move != original:
+        gs.enpassantPossible = ()
     try:
         moves = gs.getValidMoves()
         attacks = set((m.endRow, m.endCol) for m in moves)
     finally:
         gs.whiteToMove = original
-    
+        gs.enpassantPossible = original_ep
+
     # Cache the result
     if not hasattr(gs, '_attack_cache'):
         gs._attack_cache = {}

@@ -7,10 +7,10 @@ import time
 
 sys.path.append(".")
 
-import ChessEngine
+import chessEngine
 import SmartMoveFinder
 
-from ChessEngine import *
+from chessEngine import *
 from SmartMoveFinder import *
 import pygame as p
 import os

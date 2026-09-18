@@ -4,3 +4,6 @@ __pycache__/
 
 # OS generated files (if you are on Mac)
 .DS_Store
+
+# Virtual environment
+venv/
