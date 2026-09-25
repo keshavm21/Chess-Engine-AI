@@ -634,9 +634,15 @@ def is_in_check(gs, checking_black):
     return king_pos in attacks
 
 # ---------- Main evaluation function ----------
-def scoreBoard(gs):
+def scoreBoard(gs, depth=0):
+    # depth = plies of search still remaining when this terminal position
+    # was reached. A mate found with more depth remaining took fewer
+    # actual moves to arrive at (a faster mate); adding it to CHECKMATE
+    # makes faster mates score more extreme than slower ones, so the
+    # search prefers the fastest available mate and prefers resisting
+    # the longest when it is the one being mated.
     if gs.checkmate:
-        return -CHECKMATE if gs.whiteToMove else CHECKMATE
+        return -(CHECKMATE + depth) if gs.whiteToMove else (CHECKMATE + depth)
     if gs.stalemate:
         return STALEMATE
 
@@ -721,8 +727,14 @@ def findBestMoveMinMax(gs, validMoves, returnQueue=None):
         gs._attack_cache.clear()
     
     try:
-        # If very few moves, just pick one quickly
-        if len(validMoves) <= 3:
+        # A single legal move needs no evaluation: it is the only move
+        # available regardless of what search would find, so returning it
+        # immediately is free and carries zero risk. Two or three legal
+        # moves is a different story -- that is a real decision (often
+        # the only replies to a check), and skipping search there can
+        # pick an objectively much worse move purely by coincidence of
+        # move-generation order.
+        if len(validMoves) == 1:
             result = validMoves[0]
         else:
             _ = findMoveMinMaxAlphaBeta(gs, validMoves, MAX_DEPTH, -CHECKMATE, CHECKMATE, gs.whiteToMove)
@@ -744,7 +756,7 @@ def findMoveMinMaxAlphaBeta(gs, validMoves, depth, alpha, beta, whiteToMove):
     
     # Quick terminal node check
     if depth == 0 or gs.checkmate or gs.stalemate:
-        return scoreBoard(gs)
+        return scoreBoard(gs, depth)
 
     # Sort moves once at the beginning for better pruning
     if depth == MAX_DEPTH or depth == MAX_DEPTH - 1:
