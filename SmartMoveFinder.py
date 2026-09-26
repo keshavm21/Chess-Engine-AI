@@ -719,8 +719,9 @@ def findBestMoveMinMax(gs, validMoves, returnQueue=None):
     """
     Wrapped search with exception handling and time management
     """
-    global nextMove
+    global nextMove, nodesExplored
     nextMove = None
+    nodesExplored = 0
     
     # Clear cache for new search
     if hasattr(gs, '_attack_cache'):
@@ -752,7 +753,8 @@ def findBestMoveMinMax(gs, validMoves, returnQueue=None):
         return result
 
 def findMoveMinMaxAlphaBeta(gs, validMoves, depth, alpha, beta, whiteToMove):
-    global nextMove
+    global nextMove, nodesExplored
+    nodesExplored += 1
     
     # Quick terminal node check
     if depth == 0 or gs.checkmate or gs.stalemate:
