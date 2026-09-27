@@ -7,3 +7,8 @@ __pycache__/
 
 # Virtual environment
 venv/
+
+# Tool caches
+.pytest_cache/
+.ruff_cache/
+.venv/
