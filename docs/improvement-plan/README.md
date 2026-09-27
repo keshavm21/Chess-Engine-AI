@@ -19,7 +19,7 @@ The plan for turning Chess-Engine-AI into a clean, well-tested portfolio project
 | Phase | Title | Status |
 |---|---|---|
 | 0 | Planning | ✅ Done (pending review) |
-| 1 | Safety net: tests, tooling, CI | ⬜ Not started |
+| 1 | Safety net: tests, tooling, CI | 🔶 Implemented, awaiting review and merge |
 | 2 | Structure and naming cleanup | ⬜ Not started |
 | 3 | Correctness fixes | ⬜ Not started |
 | 4 | Performance | ⬜ Not started |

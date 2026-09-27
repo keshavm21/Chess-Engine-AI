@@ -52,22 +52,20 @@ Change IDs (`A1`, `D4`, …) refer to 02. Finding IDs (`R2`, `S1`, `G1`, …) re
 | Add perft position 3 (passes today) and positions 4 and 5 as `xfail(strict=True)` (underpromotion) | G3 |
 | Add `xfail(strict=True)` regression tests for known bugs: mate-in-1 missed (S1, using the two FENs in 01), rank-8 notation (R2), game-over flags set by off-turn queries (R5) | — |
 | Create `docs/benchmarks.md` holding the baseline from 01 §5 | C5 |
-| GitHub Actions workflow: `pytest -m "not slow"` on push/PR across the supported Python versions | G5 |
+| GitHub Actions workflow: `ruff check .` + the **full** `pytest` suite (~35 s, so the deep perft doesn't need skipping) on push/PR for Python 3.10–3.13 | G5 |
 | `.gitignore`: `.pytest_cache/`, `.ruff_cache/`, `.venv/` | H7 |
 
 **Verification:** `pytest` → everything passes except the documented `xfail`s. CI green. The app runs exactly as before.
 
+**Outcome (2026-09-28):** 28 passed, 10 strict xfails (4 × R1, 3 × R2, 1 × R5, 2 × S1), ~34 s; also run from a clean virtualenv built only from the requirements files. The new attack-cache tests were checked against the pre-fix code from `cad80b8^`, and 3 of 4 fail there as intended. Supported Python: 3.10–3.13 (pygame 2.6.1 has Linux wheels for exactly these). **Open item:** the local `venv/` is still macOS system Python 3.9.6. Recreate it with Python 3.12 before Phase 2 (`brew install python@3.12 && rm -rf venv && python3.12 -m venv venv && venv/bin/pip install -r requirements-dev.txt`).
+
 **Planned commits:**
 ```
-build: add pyproject.toml with pytest config and dev requirements
-build: relax pygame pin to a version with current wheels
-test: convert perft and search suites to pytest
-test: add attack-cache regression tests
-test: add perft position 3 and xfail positions 4-5 (no underpromotion)
-test: add xfail regression tests for known engine bugs
-docs: record baseline benchmark results
-ci: run fast test suite on GitHub Actions
-chore: ignore pytest and ruff caches
+build: add pytest/ruff config and dev requirements, relax pygame pin
+test: move suites to pytest, add perft positions 3-5, pin known bugs as xfails
+test: add attack-cache and notation regression tests
+ci: run lint and full test suite on GitHub Actions
+docs: record baseline benchmarks and update guides for pytest
 ```
 
 ---
