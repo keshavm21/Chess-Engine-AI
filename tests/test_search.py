@@ -1,67 +1,28 @@
-"""
-Regression tests for findBestMoveMinMax() / findMoveMinMaxAlphaBeta().
+"""Regression tests for findBestMoveMinMax() / findMoveMinMaxAlphaBeta()."""
 
-Run with:
-    python3 tests/test_search.py
-"""
+import time
 
-import os
-import sys
-
-REPO_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-if REPO_ROOT not in sys.path:
-    sys.path.insert(0, REPO_ROOT)
+import pytest
 
 import chessEngine
 import SmartMoveFinder
 
 
-class Skipped(Exception):
-    pass
+def best_move(gs):
+    return SmartMoveFinder.findBestMoveMinMax(gs, list(gs.getValidMoves()))
 
 
-def set_position_from_fen(gs, fen):
-    """Minimal FEN loader (board, side to move, castling, en passant)."""
-    placement, side, castling, ep = fen.split()[:4]
-    piece_map = {
-        "p": "bp", "n": "bN", "b": "bB", "r": "bR", "q": "bQ", "k": "bK",
-        "P": "wp", "N": "wN", "B": "wB", "R": "wR", "Q": "wQ", "K": "wK",
-    }
-    board = []
-    for row in placement.split("/"):
-        board_row = []
-        for ch in row:
-            if ch.isdigit():
-                board_row.extend(["--"] * int(ch))
-            else:
-                board_row.append(piece_map[ch])
-        board.append(board_row)
-    gs.board = board
-    gs.whiteToMove = (side == "w")
-    gs.currentCastlingRights = chessEngine.CastleRights(
-        "K" in castling, "k" in castling, "Q" in castling, "q" in castling,
-    )
-    gs.castleRightLog = [chessEngine.CastleRights(
-        gs.currentCastlingRights.wks, gs.currentCastlingRights.bks,
-        gs.currentCastlingRights.wqs, gs.currentCastlingRights.bqs,
-    )]
-    gs.enpassantPossible = () if ep == "-" else (
-        8 - int(ep[1]), ord(ep[0]) - ord("a"),
-    )
-    gs.enpassantPossibleLog = [gs.enpassantPossible]
-    gs.moveLog = []
-    for r in range(8):
-        for c in range(8):
-            if gs.board[r][c] == "wK":
-                gs.whiteKingLocation = (r, c)
-            elif gs.board[r][c] == "bK":
-                gs.blackKingLocation = (r, c)
-    gs.checkmate = False
-    gs.stalemate = False
-    return gs
+def delivers_checkmate(gs, move):
+    """True if playing `move` checkmates the opponent. Leaves `gs` unchanged."""
+    gs.makeMove(move)
+    gs.getValidMoves()  # sets gs.checkmate / gs.stalemate
+    mated = gs.checkmate
+    gs.undoMove()
+    gs.getValidMoves()
+    return mated
 
 
-def test_three_legal_moves_finds_the_free_queen_capture():
+def test_three_legal_moves_finds_the_free_queen_capture(load_fen):
     """r1bqkbr1/pp1p2pp/n3pp2/2p4Q/7P/3PP1n1/PPP2PP1/RNB1KBNR b Q -
 
     Black is in check from the White queen on h5 (it checks along the
@@ -73,10 +34,7 @@ def test_three_legal_moves_finds_the_free_queen_capture():
     applied (verified against all four fix combinations), unlike an
     earlier candidate position that turned out to be sensitive to it.
     """
-    gs = chessEngine.GameState()
-    set_position_from_fen(
-        gs, "r1bqkbr1/pp1p2pp/n3pp2/2p4Q/7P/3PP1n1/PPP2PP1/RNB1KBNR b Q -"
-    )
+    gs = load_fen("r1bqkbr1/pp1p2pp/n3pp2/2p4Q/7P/3PP1n1/PPP2PP1/RNB1KBNR b Q -")
 
     moves = gs.getValidMoves()
     assert len(moves) == 3, f"expected exactly 3 legal moves, got {len(moves)}"
@@ -97,17 +55,15 @@ def test_three_legal_moves_finds_the_free_queen_capture():
     )
 
 
-def test_single_legal_move_is_still_immediate():
+def test_single_legal_move_is_still_immediate(load_fen):
     """A position with exactly one legal move should still return
     instantly without needing to run the full search -- that part of the
     original shortcut was sound and should be kept."""
-    gs = chessEngine.GameState()
-    set_position_from_fen(gs, "7k/8/6K1/8/8/8/8/6R1 b - -")
+    gs = load_fen("7k/8/6K1/8/8/8/8/6R1 b - -")
 
     moves = gs.getValidMoves()
     assert len(moves) == 1, f"expected exactly 1 legal move, got {len(moves)}"
 
-    import time
     t0 = time.time()
     chosen = SmartMoveFinder.findBestMoveMinMax(gs, list(moves))
     elapsed = time.time() - t0
@@ -123,11 +79,7 @@ def test_mate_distance_scoring_prefers_faster_mate():
     """A mate found with more search depth remaining (i.e. reached in
     fewer actual moves) must score more extremely than one found with
     less depth remaining, so the search can tell them apart instead of
-    treating every mate as identical. Skipped gracefully if scoreBoard()
-    doesn't accept a depth argument yet (Patch B not applied)."""
-    if "depth" not in SmartMoveFinder.scoreBoard.__code__.co_varnames:
-        raise Skipped("scoreBoard() has no depth parameter -- Patch B not applied yet")
-
+    treating every mate as identical."""
     gs = chessEngine.GameState()
     gs.checkmate = True
 
@@ -148,30 +100,30 @@ def test_mate_distance_scoring_prefers_faster_mate():
     )
 
 
-if __name__ == "__main__":
-    tests = [
-        test_three_legal_moves_finds_the_free_queen_capture,
-        test_single_legal_move_is_still_immediate,
-        test_mate_distance_scoring_prefers_faster_mate,
-    ]
-    failures = 0
-    for test in tests:
-        try:
-            test()
-        except Skipped as e:
-            print(f"SKIPPED: {test.__name__}\n  {e}")
-        except AssertionError as e:
-            failures += 1
-            print(f"FAILED: {test.__name__}\n  {e}")
-        except Exception as e:
-            failures += 1
-            print(f"ERROR:  {test.__name__}\n  {type(e).__name__}: {e}")
-        else:
-            print(f"PASSED: {test.__name__}")
+def test_finds_back_rank_mate_in_one(load_fen):
+    """Control case for the mate-in-one tests below: Ra8# is the first
+    checking move searched, so the engine already finds it today."""
+    gs = load_fen("6k1/5ppp/8/8/8/8/8/R5K1 w - -")
+    assert delivers_checkmate(gs, best_move(gs))
 
-    if failures:
-        print(f"\n{failures} test(s) failed.")
-        sys.exit(1)
-    else:
-        print("\nAll search tests passed.")
-        sys.exit(0)
+
+@pytest.mark.xfail(
+    reason="root search window is [-CHECKMATE, CHECKMATE] but mate scores are "
+    ">= CHECKMATE, so a slower mate searched first causes a cutoff before the "
+    "mate-in-one is examined -- docs/improvement-plan finding S1, fixed in Phase 3",
+    raises=AssertionError,
+    strict=True,
+)
+@pytest.mark.parametrize(
+    "fen",
+    [
+        pytest.param("3k4/5R2/8/2K5/4Q3/8/8/8 w - -", id="Qa8#-not-Qd5+"),
+        pytest.param("8/8/1R2Q3/8/8/8/8/k1K5 w - -", id="Ra6#-not-Qe5+"),
+    ],
+)
+def test_prefers_mate_in_one_over_slower_mate(fen, load_fen):
+    gs = load_fen(fen)
+    chosen = best_move(gs)
+    assert delivers_checkmate(gs, chosen), (
+        f"a mate in one is available but the engine chose {chosen.getChessNotation()}"
+    )
