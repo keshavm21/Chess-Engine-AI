@@ -2,16 +2,16 @@
 
 The puzzle answers are re-derived here with exhaustive searches that only use
 the (perft-verified) move generator, so the suite cannot silently contain a
-wrong answer. The engine's own solve rate is reported by
-`python -m chess_ai.tactics`; it is not asserted here (see Phase 6 of
-docs/improvement-plan).
+wrong answer. The engine must solve every puzzle when given the depth the
+puzzle needs; its solve rate under a time limit is reported by
+`python -m chess_ai.tactics` (it depends on the machine, so it is not asserted).
 """
 
 import json
 
 import pytest
 
-from chess_ai import tactics
+from chess_ai import search, tactics
 from chess_ai.engine import GameState
 
 VALUE = {"p": 1, "N": 3, "B": 3, "R": 5, "Q": 9, "K": 0}
@@ -173,3 +173,20 @@ def test_runner_reports_solve_rate(tmp_path, monkeypatch):
     report = json.loads(out.read_text())
     assert report["summary"]["all"] == [2, 2]
     assert all(row["solved"] for row in report["results"])
+
+
+# Plies a puzzle needs in principle: 2n - 1 for mate in n; for the others three
+# plies, with the quiescence search playing out the exchanges.
+REQUIRED_DEPTH = {"mate1": 1, "mate2": 3, "mate3": 5, "win": 3, "avoid": 3}
+
+
+@pytest.mark.slow
+@pytest.mark.parametrize("puzzle", tactics.PUZZLES, ids=lambda p: p.name)
+def test_engine_solves_every_puzzle_at_its_required_depth(puzzle):
+    """The Phase 6 strength threshold. A fixed depth (rather than a time
+    limit) keeps the test independent of the machine's speed."""
+    result = search.Searcher(max_depth=REQUIRED_DEPTH[puzzle.kind]).search(
+        GameState.from_fen(puzzle.fen)
+    )
+    move = result.move.coordinate_notation()
+    assert puzzle.is_solved_by(move), f"engine played {move}"
