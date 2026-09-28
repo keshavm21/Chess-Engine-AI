@@ -21,6 +21,43 @@ _STRAIGHT_RAYS = ((-1, 0), (1, 0), (0, -1), (0, 1))
 _DIAGONAL_RAYS = ((-1, -1), (-1, 1), (1, -1), (1, 1))
 
 
+def _on_board(r, c):
+    return 0 <= r < 8 and 0 <= c < 8
+
+
+def _step_targets(steps):
+    """For every square, the on-board squares one step away (knight or king)."""
+    return [
+        [
+            tuple((r + dr, c + dc) for dr, dc in steps if _on_board(r + dr, c + dc))
+            for c in range(8)
+        ]
+        for r in range(8)
+    ]
+
+
+def _ray_targets(directions):
+    """For every square, each ray as the ordered squares it passes through."""
+    tables = [[[] for _ in range(8)] for _ in range(8)]
+    for r in range(8):
+        for c in range(8):
+            for dr, dc in directions:
+                ray, rr, cc = [], r + dr, c + dc
+                while _on_board(rr, cc):
+                    ray.append((rr, cc))
+                    rr, cc = rr + dr, cc + dc
+                if ray:
+                    tables[r][c].append(tuple(ray))
+    return tables
+
+
+# Precomputed once so attack detection only looks up squares.
+_KNIGHT_TARGETS = _step_targets(_KNIGHT_JUMPS)
+_KING_TARGETS = _step_targets(_KING_STEPS)
+_STRAIGHT_LINES = _ray_targets(_STRAIGHT_RAYS)
+_DIAGONAL_LINES = _ray_targets(_DIAGONAL_RAYS)
+
+
 class GameState:
     def __init__(self):
         # this is a 2d representation of the board from White's perspective
@@ -440,31 +477,27 @@ class GameState:
             if c < 7 and board[pawn_row][c + 1] == pawn:
                 return True
 
-        knight, king = color + "N", color + "K"
-        for dr, dc in _KNIGHT_JUMPS:
-            rr, cc = r + dr, c + dc
-            if 0 <= rr < 8 and 0 <= cc < 8 and board[rr][cc] == knight:
+        knight = color + "N"
+        for rr, cc in _KNIGHT_TARGETS[r][c]:
+            if board[rr][cc] == knight:
                 return True
-        for dr, dc in _KING_STEPS:
-            rr, cc = r + dr, c + dc
-            if 0 <= rr < 8 and 0 <= cc < 8 and board[rr][cc] == king:
+        king = color + "K"
+        for rr, cc in _KING_TARGETS[r][c]:
+            if board[rr][cc] == king:
                 return True
 
         queen = color + "Q"
-        for rays, slider in (
-            (_STRAIGHT_RAYS, color + "R"),
-            (_DIAGONAL_RAYS, color + "B"),
+        for lines, slider in (
+            (_STRAIGHT_LINES[r][c], color + "R"),
+            (_DIAGONAL_LINES[r][c], color + "B"),
         ):
-            for dr, dc in rays:
-                rr, cc = r + dr, c + dc
-                while 0 <= rr < 8 and 0 <= cc < 8:
+            for ray in lines:
+                for rr, cc in ray:
                     piece = board[rr][cc]
                     if piece != "--":
                         if piece == slider or piece == queen:
                             return True
                         break
-                    rr += dr
-                    cc += dc
         return False
 
     def get_pseudo_legal_moves(self):
