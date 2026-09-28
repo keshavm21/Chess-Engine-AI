@@ -6,7 +6,7 @@ import pytest
 
 from chess_ai import search, tactics
 from chess_ai.engine import GameState
-from chess_ai.evaluation import TEMPO
+from chess_ai.evaluation import CHECKMATE, TEMPO
 
 START = "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq -"
 
@@ -74,3 +74,15 @@ def test_quiescence_nodes_are_counted():
         GameState.from_fen(kiwipete)
     )
     assert without.qnodes == 0
+
+
+def test_evaluate_position_resolves_captures_and_game_over():
+    start = GameState.from_fen(START)
+    assert search.evaluate_position(start) == TEMPO
+    # White to move can win Black's undefended queen: counted immediately.
+    queen_hangs = GameState.from_fen("4k3/8/8/3q4/8/8/8/3RK3 w - -")
+    assert search.evaluate_position(queen_hangs) > 300
+    mated = GameState.from_fen("3R2k1/5ppp/8/8/8/8/8/6K1 b - -")
+    assert search.evaluate_position(mated) == CHECKMATE  # Black is mated
+    stalemated = GameState.from_fen("7k/8/6QK/8/8/8/8/8 b - -")
+    assert search.evaluate_position(stalemated) == 0

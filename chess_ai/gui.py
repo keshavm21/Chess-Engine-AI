@@ -40,132 +40,6 @@ def load_images():
         IMAGES[piece] = p.transform.scale(p.image.load(img), (SQ_SIZE, SQ_SIZE))
 
 
-def evaluate_position(gs):
-    """
-    Evaluate the current position
-    Returns a score where positive is good for white, negative for black
-    Range: -1000 to +1000 (checkmate values)
-    """
-    # Check for game over
-    if gs.checkmate:
-        return -1000 if gs.white_to_move else 1000
-    elif gs.stalemate:
-        return 0
-
-    score = 0
-
-    # Piece values
-    piece_values = {"K": 0, "Q": 9, "R": 5, "B": 3, "N": 3, "p": 1}
-
-    # Position scores
-    knight_scores = [
-        [1, 1, 1, 1, 1, 1, 1, 1],
-        [1, 2, 2, 2, 2, 2, 2, 1],
-        [1, 2, 3, 3, 3, 3, 2, 1],
-        [1, 2, 3, 4, 4, 3, 2, 1],
-        [1, 2, 3, 4, 4, 3, 2, 1],
-        [1, 2, 3, 3, 3, 3, 2, 1],
-        [1, 2, 2, 2, 2, 2, 2, 1],
-        [1, 1, 1, 1, 1, 1, 1, 1],
-    ]
-
-    bishop_scores = [
-        [4, 3, 2, 1, 1, 2, 3, 4],
-        [3, 4, 3, 2, 2, 3, 4, 3],
-        [2, 3, 4, 3, 3, 4, 3, 2],
-        [1, 2, 3, 4, 4, 3, 2, 1],
-        [1, 2, 3, 4, 4, 3, 2, 1],
-        [2, 3, 4, 3, 3, 4, 3, 2],
-        [3, 4, 3, 2, 2, 3, 4, 3],
-        [4, 3, 2, 1, 1, 2, 3, 4],
-    ]
-
-    queen_scores = [
-        [1, 1, 1, 3, 1, 1, 1, 1],
-        [1, 2, 3, 3, 3, 1, 1, 1],
-        [1, 4, 3, 3, 3, 4, 2, 1],
-        [1, 2, 3, 3, 3, 2, 2, 1],
-        [1, 2, 3, 3, 3, 2, 2, 1],
-        [1, 4, 3, 3, 3, 4, 2, 1],
-        [1, 1, 2, 3, 3, 1, 1, 1],
-        [1, 1, 1, 3, 1, 1, 1, 1],
-    ]
-
-    rook_scores = [
-        [4, 3, 4, 4, 4, 4, 3, 4],
-        [4, 4, 4, 4, 4, 4, 4, 4],
-        [1, 1, 2, 3, 3, 2, 1, 1],
-        [1, 2, 3, 4, 4, 3, 2, 1],
-        [1, 2, 3, 4, 4, 3, 2, 1],
-        [1, 1, 2, 3, 3, 2, 1, 1],
-        [4, 4, 4, 4, 4, 4, 4, 4],
-        [4, 3, 4, 4, 4, 4, 3, 4],
-    ]
-
-    white_pawn_scores = [
-        [8, 8, 8, 8, 8, 8, 8, 8],
-        [8, 8, 8, 8, 8, 8, 8, 8],
-        [5, 6, 6, 7, 7, 6, 6, 5],
-        [2, 3, 3, 5, 5, 3, 3, 2],
-        [1, 2, 3, 4, 4, 3, 2, 1],
-        [1, 1, 2, 3, 3, 2, 1, 1],
-        [1, 1, 1, 0, 0, 1, 1, 1],
-        [0, 0, 0, 0, 0, 0, 0, 0],
-    ]
-
-    black_pawn_scores = [
-        [0, 0, 0, 0, 0, 0, 0, 0],
-        [1, 1, 1, 0, 0, 1, 1, 1],
-        [1, 1, 2, 3, 3, 2, 1, 1],
-        [1, 2, 3, 4, 4, 3, 2, 1],
-        [2, 3, 3, 5, 5, 3, 3, 2],
-        [5, 6, 6, 7, 7, 6, 6, 5],
-        [8, 8, 8, 8, 8, 8, 8, 8],
-        [8, 8, 8, 8, 8, 8, 8, 8],
-    ]
-
-    piece_square_tables = {
-        "N": knight_scores,
-        "B": bishop_scores,
-        "Q": queen_scores,
-        "R": rook_scores,
-        "bp": black_pawn_scores,
-        "wp": white_pawn_scores,
-    }
-
-    # Calculate material and positional score
-    for row in range(len(gs.board)):
-        for col in range(len(gs.board[row])):
-            square = gs.board[row][col]
-            if square != "--":
-                piece = square[1]
-                color = square[0]
-
-                # Material score
-                piece_value = piece_values[piece]
-
-                # Positional score
-                pos_score = 0
-                if piece != "K":
-                    piece_key = piece if piece != "p" else square
-                    pos_score = piece_square_tables[piece_key][row][col] * 0.1
-
-                total = piece_value + pos_score
-
-                if color == "w":
-                    score += total
-                else:
-                    score -= total
-
-    # Bonus for having the move
-    if gs.white_to_move:
-        score += 0.1
-    else:
-        score -= 0.1
-
-    return score
-
-
 def take_back_move(gs, white_is_human, black_is_human):
     """Undo the last move, and against the AI also the move before it.
 
@@ -402,8 +276,8 @@ def main():
                 animate_move(gs.move_log[-1], screen, gs.board, clock)
             legal_moves = gs.get_legal_moves()
             gs.update_game_status(legal_moves)
-            # Evaluate after the status update so a checkmate shows as "M".
-            current_evaluation = evaluate_position(gs)
+            # The engine's own evaluation (captures played out), in pawns.
+            current_evaluation = search.evaluate_position(gs, legal_moves) / 100
             move_made = False
             animate = False
             move_undone = False

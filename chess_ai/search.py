@@ -353,6 +353,16 @@ class Searcher:
         return False
 
 
+def evaluate_position(gs, legal_moves=None):
+    """The engine's quick verdict on a position, e.g. for the GUI's evaluation
+    bar: the static evaluation after the quiescence search has played out any
+    pending captures, in centipawns from White's point of view. Checkmate and
+    stalemate are recognised."""
+    if legal_moves is None:
+        legal_moves = gs.get_legal_moves()
+    return Searcher().search_depth(gs, legal_moves, 0)[1]
+
+
 def find_best_move(gs, legal_moves, return_queue=None, max_depth=None, time_limit=None):
     """Return the best move for the side to move (see Searcher).
 
