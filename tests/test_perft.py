@@ -34,12 +34,10 @@ Positions used
   en passant with discovered checks along the rank; positions 4 and 5
   contain promotions.
 
-Promotions: make_move() always auto-queens and the engine never generates
-underpromotion moves, so any position/depth where promotions occur cannot
-match the published counts. Those cases are marked as strict expected
-failures (xfail). When underpromotion is implemented they will start
-passing, pytest will report them as XPASS(strict) failures, and the
-xfail marks must then be removed.
+Promotions: positions 4 and 5 contain promotions, including
+underpromotions, so they also check that all four promotion pieces are
+generated and that make/undo handles them. (Before Phase 3 the engine only
+promoted to a queen and these cases were strict xfails.)
 
 Run with:
     pytest tests/test_perft.py              # everything (~30s)
@@ -58,15 +56,6 @@ POSITION_4 = "r3k2r/Pppp1ppp/1b3nbN/nP6/BBP1P3/q4N2/Pp1P2PP/R2Q1RK1 w kq -"
 POSITION_5 = "rnbq1k1r/pp1Pbppp/2p5/8/2B5/8/PPP1NnPP/RNBQK2R w KQ -"
 
 SLOW = pytest.mark.slow
-# raises=AssertionError: only a wrong node count is expected. A state
-# restoration failure is reported via pytest.fail() instead, so it can never
-# be hidden behind this mark.
-NO_UNDERPROMOTION = pytest.mark.xfail(
-    reason="engine only promotes to a queen (no underpromotion) -- "
-    "docs/improvement-plan finding R1, fixed in Phase 3",
-    raises=AssertionError,
-    strict=True,
-)
 
 PERFT_CASES = [
     pytest.param(STARTPOS, 1, 20, id="startpos-d1"),
@@ -84,10 +73,12 @@ PERFT_CASES = [
     pytest.param(POSITION_3, 3, 2812, id="position3-d3"),
     pytest.param(POSITION_3, 4, 43238, id="position3-d4", marks=SLOW),
     pytest.param(POSITION_4, 1, 6, id="position4-d1"),
-    pytest.param(POSITION_4, 2, 264, id="position4-d2", marks=NO_UNDERPROMOTION),
-    pytest.param(POSITION_4, 3, 9467, id="position4-d3", marks=NO_UNDERPROMOTION),
-    pytest.param(POSITION_5, 1, 44, id="position5-d1", marks=NO_UNDERPROMOTION),
-    pytest.param(POSITION_5, 2, 1486, id="position5-d2", marks=NO_UNDERPROMOTION),
+    pytest.param(POSITION_4, 2, 264, id="position4-d2"),
+    pytest.param(POSITION_4, 3, 9467, id="position4-d3"),
+    pytest.param(POSITION_4, 4, 422333, id="position4-d4", marks=SLOW),
+    pytest.param(POSITION_5, 1, 44, id="position5-d1"),
+    pytest.param(POSITION_5, 2, 1486, id="position5-d2"),
+    pytest.param(POSITION_5, 3, 62379, id="position5-d3", marks=SLOW),
 ]
 
 

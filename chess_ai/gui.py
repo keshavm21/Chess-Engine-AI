@@ -306,14 +306,17 @@ def main():
                     if (
                         len(player_clicks) == 2 and human_turn
                     ):  # after the second click, we need to move
+                        # A promotion built from two clicks defaults to a queen,
+                        # so it matches exactly one of the four promotion moves.
                         move = Move(player_clicks[0], player_clicks[1], gs.board)
-                        for i in range(len(legal_moves)):
-                            if move == legal_moves[i]:
-                                gs.make_move(legal_moves[i])
+                        for legal_move in legal_moves:
+                            if move == legal_move:
+                                gs.make_move(legal_move)
                                 move_made = True
                                 animate = True
                                 selected_square = ()  # reset for the next turn
                                 player_clicks = []  # reset for the next turn
+                                break
                         if not move_made:
                             player_clicks = [selected_square]
             # handling the key presses like ctrl+z, etc..

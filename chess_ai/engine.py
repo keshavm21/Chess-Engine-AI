@@ -11,6 +11,8 @@ _PIECE_FROM_FEN = {
     "P": "wp", "N": "wN", "B": "wB", "R": "wR", "Q": "wQ", "K": "wK",
 }  # fmt: skip
 _FEN_FROM_PIECE = {piece: letter for letter, piece in _PIECE_FROM_FEN.items()}
+# Pieces a pawn may promote to; the queen comes first so it is searched first.
+PROMOTION_PIECES = ("Q", "R", "B", "N")
 
 
 class GameState:
@@ -186,9 +188,11 @@ class GameState:
             self.white_king_location = (move.end_row, move.end_col)
         elif move.piece_moved == "bK":
             self.black_king_location = (move.end_row, move.end_col)
-        # about pawn promotions, we'll consider the queen promotion at first:
+        # pawn promotion: replace the pawn with the chosen piece
         if move.is_promotion:
-            self.board[move.end_row][move.end_col] = move.piece_moved[0] + "Q"
+            self.board[move.end_row][move.end_col] = (
+                move.piece_moved[0] + move.promotion_piece
+            )
         # about enpassant move
         if move.is_en_passant:
             self.board[move.start_row][move.end_col] = "--"  # capturing the pawn
@@ -415,7 +419,7 @@ class GameState:
         if self.white_to_move:  # white pawn move
             if self.board[r - 1][c] == "--":  # the square in front of a pawn is empty
                 # start square, end square, board
-                moves.append(Move((r, c), (r - 1, c), self.board))
+                self._add_pawn_move((r, c), (r - 1, c), moves)
                 # check if it possible to advance to squares in the first move
                 if r == 6 and self.board[r - 2][c] == "--":
                     moves.append(Move((r, c), (r - 2, c), self.board))
@@ -423,7 +427,7 @@ class GameState:
                 if (
                     self.board[r - 1][c - 1][0] == "b"
                 ):  # there's an enemy piece to capture
-                    moves.append(Move((r, c), (r - 1, c - 1), self.board))
+                    self._add_pawn_move((r, c), (r - 1, c - 1), moves)
                 elif (r - 1, c - 1) == self.en_passant_square:
                     moves.append(
                         Move((r, c), (r - 1, c - 1), self.board, is_en_passant=True)
@@ -432,7 +436,7 @@ class GameState:
                 if (
                     self.board[r - 1][c + 1][0] == "b"
                 ):  # there's an enemy piece to capture
-                    moves.append(Move((r, c), (r - 1, c + 1), self.board))
+                    self._add_pawn_move((r, c), (r - 1, c + 1), moves)
                 elif (r - 1, c + 1) == self.en_passant_square:
                     moves.append(
                         Move((r, c), (r - 1, c + 1), self.board, is_en_passant=True)
@@ -441,7 +445,7 @@ class GameState:
         else:  # black pawn move
             if self.board[r + 1][c] == "--":  # the square in front of a pawn is empty
                 # start square, end square, board
-                moves.append(Move((r, c), (r + 1, c), self.board))
+                self._add_pawn_move((r, c), (r + 1, c), moves)
                 # check if it possible to advance to squares in the first move
                 if r == 1 and self.board[r + 2][c] == "--":
                     moves.append(Move((r, c), (r + 2, c), self.board))
@@ -449,7 +453,7 @@ class GameState:
                 if (
                     self.board[r + 1][c - 1][0] == "w"
                 ):  # there's an enemy piece to capture
-                    moves.append(Move((r, c), (r + 1, c - 1), self.board))
+                    self._add_pawn_move((r, c), (r + 1, c - 1), moves)
                 elif (r + 1, c - 1) == self.en_passant_square:
                     moves.append(
                         Move((r, c), (r + 1, c - 1), self.board, is_en_passant=True)
@@ -458,13 +462,19 @@ class GameState:
                 if (
                     self.board[r + 1][c + 1][0] == "w"
                 ):  # there's an enemy piece to capture
-                    moves.append(Move((r, c), (r + 1, c + 1), self.board))
+                    self._add_pawn_move((r, c), (r + 1, c + 1), moves)
                 elif (r + 1, c + 1) == self.en_passant_square:
                     moves.append(
                         Move((r, c), (r + 1, c + 1), self.board, is_en_passant=True)
                     )
 
-        # paw promotions will be added later..
+    def _add_pawn_move(self, start, end, moves):
+        """Append a pawn push or capture; on the last rank, one move per promotion piece."""
+        if end[0] in (0, 7):  # a pawn can only reach its own last rank
+            for piece in PROMOTION_PIECES:
+                moves.append(Move(start, end, self.board, promotion_piece=piece))
+        else:
+            moves.append(Move(start, end, self.board))
 
     def _get_knight_moves(self, r, c, moves):
         """Append the moves of the knight on (r, c) to `moves`."""
@@ -629,7 +639,15 @@ class Move:
 
     COLS_TO_FILES = {v: k for k, v in FILES_TO_COLS.items()}
 
-    def __init__(self, start_sq, end_sq, board, is_en_passant=False, is_castle=False):
+    def __init__(
+        self,
+        start_sq,
+        end_sq,
+        board,
+        is_en_passant=False,
+        is_castle=False,
+        promotion_piece="Q",
+    ):
         self.start_row, self.start_col = start_sq
         self.end_row, self.end_col = end_sq
         self.piece_moved = board[self.start_row][self.start_col]
@@ -640,10 +658,12 @@ class Move:
         if self.is_en_passant:
             self.piece_captured = "wp" if self.piece_moved == "bp" else "bp"
 
-        # pawn promotion move
+        # pawn promotion move: promotion_piece is "Q", "R", "B" or "N" (a queen
+        # unless told otherwise, e.g. for a move built from two GUI clicks)
         self.is_promotion = (self.piece_moved == "wp" and self.end_row == 0) or (
             self.piece_moved == "bp" and self.end_row == 7
         )
+        self.promotion_piece = promotion_piece if self.is_promotion else None
 
         # castle move
         self.is_castle = is_castle
@@ -661,15 +681,21 @@ class Move:
         # print(self.move_id) # for debugging
 
     def __eq__(self, other):
-        """Moves are equal when they have the same start and end squares."""
+        """Moves are equal when they have the same start and end squares and,
+        for promotions, the same promotion piece."""
         if isinstance(other, Move):
-            return self.move_id == other.move_id
+            return (
+                self.move_id == other.move_id
+                and self.promotion_piece == other.promotion_piece
+            )
         return False
 
     def coordinate_notation(self):
-        # this can be modified to be a more real chess notation
-        return self.square_name(self.start_row, self.start_col) + self.square_name(
-            self.end_row, self.end_col
+        """Long algebraic / UCI style notation, e.g. "e2e4" or "e7e8n"."""
+        return (
+            self.square_name(self.start_row, self.start_col)
+            + self.square_name(self.end_row, self.end_col)
+            + (self.promotion_piece.lower() if self.is_promotion else "")
         )
 
     def square_name(self, r, c):
@@ -683,10 +709,14 @@ class Move:
         # pawn moves, captures, promotion
         if self.piece_moved[1] == "p":
             if self.is_capture:
-                return self.COLS_TO_FILES[self.start_col] + "x" + end_square
+                move_string = self.COLS_TO_FILES[self.start_col] + "x" + end_square
             else:
-                return end_square
-        # TODO add promotion, + sign for check, # for checkmate and two pieces can move to same square
+                move_string = end_square
+            if self.is_promotion:
+                move_string += "=" + self.promotion_piece
+            return move_string
+        # TODO: + for check, # for checkmate, and disambiguation when two
+        # pieces can move to the same square
         # other piece moves, captures
         move_string = self.piece_moved[1]
         if self.is_capture:

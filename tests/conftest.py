@@ -28,10 +28,13 @@ def square(name):
 
 
 def find_legal_move(gs, coordinates):
-    """The legal move matching a coordinate string such as "e2e4"."""
+    """The legal move matching a coordinate string such as "e2e4", or "e7e8n"
+    for a promotion (the promotion letter is required for promotions)."""
     start, end = square(coordinates[:2]), square(coordinates[2:4])
+    promotion = coordinates[4:].upper() or None
     for move in gs.get_legal_moves():
-        if (move.start_row, move.start_col, move.end_row, move.end_col) == start + end:
+        squares = (move.start_row, move.start_col, move.end_row, move.end_col)
+        if squares == start + end and move.promotion_piece == promotion:
             return move
     # pytest.fail, not AssertionError: a broken lookup must never be mistaken
     # for the expected failure of an xfail(raises=AssertionError) test.

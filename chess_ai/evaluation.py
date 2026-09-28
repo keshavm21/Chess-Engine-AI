@@ -573,9 +573,11 @@ def tactical_score(gs):
     original = gs.white_to_move
     moves = gs.get_legal_moves()
 
-    # Quick capture evaluation
+    # Quick capture evaluation. A capture that promotes appears once per
+    # promotion piece; count it once (as the queen promotion), as before
+    # underpromotion moves existed.
     for m in moves:
-        if m.piece_captured != "--":
+        if m.piece_captured != "--" and m.promotion_piece in (None, "Q"):
             captured_value = PIECE_VALUES.get(m.piece_captured[1], 0)
             if original:
                 score += 0.25 * captured_value

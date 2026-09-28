@@ -29,8 +29,9 @@ def get_move_priority(move, gs, is_white):
         attacker_value = PIECE_VALUES.get(move.piece_moved[1], 0)
         priority += 1000 + (captured_value * 10 - attacker_value)
 
-    # Promotions are very good
-    if move.is_promotion:
+    # Queen promotions are very good; underpromotions are rarely best, so
+    # they get no bonus and are searched late.
+    if move.promotion_piece == "Q":
         priority += 900
 
     # Checks get good priority
