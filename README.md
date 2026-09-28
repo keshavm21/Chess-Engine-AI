@@ -12,7 +12,7 @@ This is a fully functional **Chess Engine** written in Python using `pygame`. It
 - `chess_ai/engine.py` — The game state (board, rules, legal move generation, FEN)
 - `chess_ai/search.py` — The AI search (Minimax with Alpha-Beta pruning, move ordering)
 - `chess_ai/evaluation.py` — Position evaluation (material, piece-square tables, heuristics)
-- `chess_ai/benchmark.py` — Search benchmark
+- `chess_ai/benchmark.py` — Performance benchmark (move generation and search)
 - `chess_ai/assets/pieces/` — Piece images (`wp.png`, `bK.png`, etc.)
 - `tests/` — Test suite (pytest)
 - `requirements.txt` / `requirements-dev.txt` — Runtime dependencies (pygame) / development tools (pytest, ruff)
@@ -100,13 +100,13 @@ The AI (`chess_ai/search.py` and `chess_ai/evaluation.py`) combines the followin
 ```bash
 pip install -r requirements-dev.txt
 pytest                      # full test suite
-python -m chess_ai.benchmark  # search benchmark (takes a minute or two)
+python -m chess_ai.benchmark  # performance benchmark (a few seconds)
 ```
 
 ## Known Limitations
 - In the GUI, pawns always promote to a queen (the engine and AI support all promotion pieces)
 - No threefold repetition, fifty-move rule, or insufficient-material draw detection
-- AI computation time depends on the position and the machine (from a couple of seconds to over 20 seconds per move at depth 3 on an Apple M1)
+- AI computation time depends on the position and the machine (roughly 0.2–2 seconds per move at depth 3 on an Apple M1)
 - Depth beyond 3 may cause noticeable delays on slower systems
 
 ## License

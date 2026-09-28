@@ -148,13 +148,19 @@ docs: record Phase 3 results and update guides
 
 **Verification:** perft identical. Benchmark nodes and moves **identical** to the end of Phase 3. Before/after timing table added to `docs/benchmarks.md`. Expect a several-fold speed-up; the actual factor gets measured, not assumed.
 
+**Outcome (2026-09-28):** perft **11–15× faster**, search **12.6× faster** (45.0 s → 3.6 s for the four benchmark positions), with identical node counts and moves. Test suite ~4 s (was ~32 s). Checked against the pre-Phase-4 engine: legal move lists identical and in the same order on 20 002 random positions except for one R7 case, and `evaluate()` bit-for-bit identical on 3 031 positions. Notes:
+- The benchmark was extended **first**, so before and after were measured with the same tool.
+- New bug R7 (castling through a pawn-attacked square) was found while defining "same results"; the direct attack scan fixes it.
+- Profile-guided follow-ups that paid off: sharing the side to move's legal moves between two evaluation terms (−19 % search time) and precomputed attack tables (−19 % search, −23–31 % perft). `__slots__` on `Move` and cheaper move ordering were **not** done: the profile showed them at ~5 % and ~1 %.
+
 **Planned commits:**
 ```
-perf: detect attacked squares by scanning from the target square
-perf: use direct attack detection for legality and castling checks
-perf: <profile-guided follow-up, if any>
 feat: report perft speed and nodes per second in benchmark
-docs: record performance results after attack-detection rewrite
+perf: detect attacked squares by scanning from the target square
+perf: check move legality without a full make/undo
+perf: share legal move generation between evaluation terms
+perf: precompute attack tables for knight, king and sliding pieces
+docs: record Phase 4 performance results
 ```
 
 ---
