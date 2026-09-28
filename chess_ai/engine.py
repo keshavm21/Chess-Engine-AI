@@ -335,31 +335,13 @@ class GameState:
         ``stalemate``) is the same afterwards. Use update_game_status() to
         refresh those flags.
         """
-        saved_en_passant_square = self.en_passant_square
-        saved_castling_rights = CastlingRights(
-            self.castling_rights.wks,
-            self.castling_rights.bks,
-            self.castling_rights.wqs,
-            self.castling_rights.bqs,
-        )
-        # the easy, but not efficient solution is:
-        # 1. let's generate all the possible moves and don't worry about the kings state
-        moves = self.get_pseudo_legal_moves()
-        # 2. for each move found, make that move
-        # when removing from the list, go backwords :)
-        for i in range(len(moves) - 1, -1, -1):
-            self.make_move(moves[i])
-            # 3. generate all opponent's moves
-            # 4. for each of those moves, check if they attack your king
-            # we need this as the make_move() did swap the players once
-            self.white_to_move = not self.white_to_move
-            if self.in_check():
-                # 5. if they do, it's not a valid move
-                moves.remove(moves[i])
-            # we need this to return every thing as before
-            self.white_to_move = not self.white_to_move
-            self.undo_move()
-        # to generate castle moves
+        # Generate every move, then keep those that don't leave our king attacked.
+        moves = [
+            move
+            for move in self.get_pseudo_legal_moves()
+            if not self._leaves_king_in_check(move)
+        ]
+        # Castling moves check their own safety conditions.
         if self.white_to_move:
             self._get_castle_moves(
                 self.white_king_location[0], self.white_king_location[1], moves
@@ -368,9 +350,46 @@ class GameState:
             self._get_castle_moves(
                 self.black_king_location[0], self.black_king_location[1], moves
             )
-        self.en_passant_square = saved_en_passant_square
-        self.castling_rights = saved_castling_rights
         return moves
+
+    def _leaves_king_in_check(self, move):
+        """True if playing `move` (not a castling move) would leave the mover's
+        king attacked.
+
+        Only the board squares that matter for attacks are changed and restored;
+        a full make_move/undo_move would also update logs, castling rights and
+        the en-passant square. A promoted piece blocks the same lines as the
+        pawn it replaces, so promotions need no special handling here.
+        """
+        board = self.board
+        white = move.piece_moved[0] == "w"
+        start_r, start_c, end_r, end_c = (
+            move.start_row,
+            move.start_col,
+            move.end_row,
+            move.end_col,
+        )
+
+        end_before = board[end_r][end_c]
+        board[start_r][start_c] = "--"
+        board[end_r][end_c] = move.piece_moved
+        if move.is_en_passant:  # the captured pawn stands beside the start square
+            captured_before = board[start_r][end_c]
+            board[start_r][end_c] = "--"
+
+        if move.piece_moved[1] == "K":
+            king_r, king_c = end_r, end_c
+        else:
+            king_r, king_c = (
+                self.white_king_location if white else self.black_king_location
+            )
+        attacked = self.is_attacked_by(king_r, king_c, not white)
+
+        if move.is_en_passant:
+            board[start_r][end_c] = captured_before
+        board[end_r][end_c] = end_before
+        board[start_r][start_c] = move.piece_moved
+        return attacked
 
     def update_game_status(self, legal_moves=None):
         """Set ``checkmate`` / ``stalemate`` for the side to move.
