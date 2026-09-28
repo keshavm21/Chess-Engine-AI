@@ -116,14 +116,20 @@ docs: fix README commands and update guides for the chess_ai package
 
 **Verification:** perft positions 4 and 5 now pass (and position 5 is added at depth 3). All former `xfail`s pass. Benchmark rerun; node counts may change because of D1 and B2, so record the new baseline. GUI smoke test (the GUI still promotes to a queen until Phase 8).
 
+**Outcome (2026-09-28):** 90 passed, 0 xfails. All 10 former strict xfails now pass, and 33 new tests were added (Black mate-in-one cases, promotion, game status, GUI undo and centring). Perft positions 4 and 5 match up to depth 4 (422 333) and depth 3 (62 379). The benchmark node counts and chosen moves are **unchanged** in all four positions (the fixes only matter when a mate or promotion is in reach). GUI driven headlessly through two undo scenarios: the old code reproduced G1 (the AI replayed after Z), the fixed code returns to the start position. Notes:
+- Underpromotion needed two guards so evaluation and ordering stay as they were: the tactical term counts a capture-promotion once (as the queen promotion), and only queen promotions get the ordering bonus.
+- Bonus fix in the GUI: the eval bar is now computed after the game status, so a checkmate shows as "M" immediately.
+- R6 (status decided before castling moves were added) is resolved as a side effect: `update_game_status()` looks at the complete legal move list.
+- Commits: one per fix plus docs (6). Because Claude doesn't commit, each verified step was saved as a git tree object and committed from those.
+
 **Planned commits:**
 ```
-fix: widen search window so faster mates are never cut off
+fix: widen root search window so faster mates are never cut off
 fix: map row 0 to rank 8 in move notation
 feat: generate underpromotion moves
 refactor: separate legal move generation from game status detection
-fix: undo a full move pair when playing against the AI
-fix: centre the end-of-game message on the board
+fix: undo a full move pair against the AI and centre the end-game message
+docs: record Phase 3 results and update guides
 ```
 
 ---

@@ -57,3 +57,17 @@ Phase 2 is a pure refactor, so the node counts and chosen moves must be identica
 | **Total** | **9 764** | | **120.24 s** | **44.09 s** | **42.19 s** |
 
 The Python upgrade alone made the search about **2.7× faster**. The refactor itself is neutral; the differences are within run-to-run noise. Test suite on 3.12: `pytest` ~12 s, `pytest -m "not slow"` ~2 s.
+
+---
+
+## Phase 3: correctness fixes
+
+| | |
+|---|---|
+| Date | 2026-09-28 |
+| Command | `python -m chess_ai.benchmark` (run after each fix) |
+| Machine / Python | Apple M1, macOS / 3.12.14 |
+
+Node counts and chosen moves are **unchanged** after every Phase 3 fix: 1 018 / 2 015 / 2 742 / 3 989 nodes, b1c3 / g8f6 / e1c1 / e2a6. The mate-window fix and underpromotion only matter when a mate or a promotion is within the search horizon, which is not the case in these positions. Timings stayed within noise (41–44 s total). The Italian Game move now prints correctly as `g8f6`.
+
+Test suite: `pytest` ~32 s (the new promotion-heavy perft case, position 4 at depth 4, takes ~15 s), `pytest -m "not slow"` ~6 s.

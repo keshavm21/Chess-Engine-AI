@@ -3,6 +3,8 @@
 A snapshot of the repository as it is today, before the improvement work starts.
 Every finding in this document was checked against the code or by running it. Anything I only inferred from reading the code is labelled *(from reading the code)* or *(not yet verified)*.
 
+> **Status:** Phase 3 fixed R1, R2, R5, R6, S1, G1 and G4 (marked ✅ below); G2 and G3 are partly fixed (🔶).
+>
 > **Note:** this is a snapshot from before Phase 2. File and function names here are the old ones (`chessEngine.py`, `getValidMoves`, …). Phase 2 moved the code into the `chess_ai/` package and renamed identifiers to PEP 8; the bugs listed here are otherwise unchanged until the phase that fixes them.
 
 | | |
@@ -74,12 +76,12 @@ The test suite also checks, after every make/undo pair, that the full game state
 
 | # | Issue | Evidence |
 |---|---|---|
-| R1 | **No underpromotion.** Promotion always creates a queen (`makeMove`), and the GUI has no piece picker. | Perft positions 4 and 5 above |
-| R2 | **Rank 8 is printed as "0".** `Move.ranksToRows` maps `"0"`→row 0 instead of `"8"`, so e7–e8 prints as `e7e0`, a knight to f8 shows as `Nf0` in the move log, and the benchmark prints moves like `g0f6`. `tests/test_search.py` currently asserts on the buggy string `"e0e7"`. | Checked directly |
+| R1 ✅ *fixed in Phase 3* | **No underpromotion.** Promotion always creates a queen (`makeMove`), and the GUI has no piece picker. | Perft positions 4 and 5 above |
+| R2 ✅ *fixed in Phase 3* | **Rank 8 is printed as "0".** `Move.ranksToRows` maps `"0"`→row 0 instead of `"8"`, so e7–e8 prints as `e7e0`, a knight to f8 shows as `Nf0` in the move log, and the benchmark prints moves like `g0f6`. `tests/test_search.py` currently asserts on the buggy string `"e0e7"`. | Checked directly |
 | R3 | **No draw rules**: no threefold repetition, no fifty-move rule, no insufficient material. For example, K vs K never ends. | Code |
 | R4 | **No FEN support in the engine.** The same FEN loader is copied into `test_perft.py`, `test_search.py` and `benchmark.py`. | Code |
-| R5 | `getValidMoves()` **mutates game-over flags**, and `get_all_attacks()` in the search module calls it for the side *not* to move. That call can set `gs.stalemate = True` in a position where the side to move isn't stalemated. It happens to be harmless today only because `tactical_score()` runs last in the evaluation and recomputes the flags for the correct side. Reordering or removing evaluation terms would expose it. | Checked directly with `7k/5Q2/6K1/8/8/8/8/8 w` |
-| R6 | Checkmate/stalemate are decided *before* castling moves are added in `getValidMoves()`. This is harmless: castling is never the only legal move, because the king could always step onto the square it passes through. The ordering is fragile, though. | From reading the code |
+| R5 ✅ *fixed in Phase 3* | `getValidMoves()` **mutates game-over flags**, and `get_all_attacks()` in the search module calls it for the side *not* to move. That call can set `gs.stalemate = True` in a position where the side to move isn't stalemated. It happens to be harmless today only because `tactical_score()` runs last in the evaluation and recomputes the flags for the correct side. Reordering or removing evaluation terms would expose it. | Checked directly with `7k/5Q2/6K1/8/8/8/8/8 w` |
+| R6 ✅ *fixed in Phase 3* | Checkmate/stalemate are decided *before* castling moves are added in `getValidMoves()`. This is harmless: castling is never the only legal move, because the king could always step onto the square it passes through. The ordering is fragile, though. | From reading the code |
 
 ---
 
@@ -96,7 +98,7 @@ The test suite also checks, after every make/undo pair, that the full game state
 
 | # | Issue | Evidence |
 |---|---|---|
-| S1 | **The engine can pick a slower mate over mate-in-1.** The root window is `[-CHECKMATE, +CHECKMATE]`, but mate scores are `CHECKMATE + depth_remaining`, which is ≥ 1000. A mate-in-2 scores exactly 1000, so the root takes an immediate beta cutoff and stops looking. If move ordering puts that move first, the real mate-in-1 is never examined. | Reproduced: in 12 random K+Q+R vs K positions with a mate-in-1, the engine chose a different move twice. Examples: `3k4/5R2/8/2K5/4Q3/8/8/8 w - -` (plays Qd5+ instead of Qa8#) and `8/8/1R2Q3/8/8/8/8/k1K5 w - -` (plays Qe5+ instead of Ra6#/Rb1#) |
+| S1 ✅ *fixed in Phase 3* | **The engine can pick a slower mate over mate-in-1.** The root window is `[-CHECKMATE, +CHECKMATE]`, but mate scores are `CHECKMATE + depth_remaining`, which is ≥ 1000. A mate-in-2 scores exactly 1000, so the root takes an immediate beta cutoff and stops looking. If move ordering puts that move first, the real mate-in-1 is never examined. | Reproduced: in 12 random K+Q+R vs K positions with a mate-in-1, the engine chose a different move twice. Examples: `3k4/5R2/8/2K5/4Q3/8/8/8 w - -` (plays Qd5+ instead of Qa8#) and `8/8/1R2Q3/8/8/8/8/k1K5 w - -` (plays Qe5+ instead of Ra6#/Rb1#) |
 | S2 | **Horizon effect.** With no quiescence search, the last ply can "win" material that the next ply loses right back. The evaluation's `tactical_score` tries to patch this, but badly (see E1/E2). | From reading the code |
 | S3 | **Search time depends on position complexity** (5–64 s), so the GUI can freeze in the "thinking" state for over a minute. | Benchmark (§5) |
 
@@ -156,10 +158,10 @@ The terms are: material + piece-square tables, bishop pair, rooks on open files,
 
 | # | Issue | Evidence |
 |---|---|---|
-| G1 | **Undo against the AI doesn't really work.** Pressing Z undoes only the AI's move. The `moveUndone` guard is reset in the same frame, so the AI immediately moves again. To get back to your own move you have to press Z a second time *while the AI is thinking*. | From reading the code |
-| G2 | Promotion always produces a queen, with no picker (see R1). | Code |
-| G3 | Move log shows rank 8 as `0` (R2), has no `+`/`#`, no promotion suffix and no disambiguation. It doesn't scroll, so long games run off the panel. | Code |
-| G4 | End-of-game text is shifted 40 px right of centre (`EVAL_BAR_WIDTH` is added twice in `drawEndGameText`). | From reading the code |
+| G1 ✅ *fixed in Phase 3* | **Undo against the AI doesn't really work.** Pressing Z undoes only the AI's move. The `moveUndone` guard is reset in the same frame, so the AI immediately moves again. To get back to your own move you have to press Z a second time *while the AI is thinking*. | From reading the code |
+| G2 🔶 *engine supports all promotions since Phase 3; the GUI picker is Phase 8* | Promotion always produces a queen, with no picker (see R1). | Code |
+| G3 🔶 *rank 8 and promotion suffix fixed in Phase 3; `+`/`#`, disambiguation and scrolling remain (Phase 8)* | Move log shows rank 8 as `0` (R2), has no `+`/`#`, no promotion suffix and no disambiguation. It doesn't scroll, so long games run off the panel. | Code |
+| G4 ✅ *fixed in Phase 3* | End-of-game text is shifted 40 px right of centre (`EVAL_BAR_WIDTH` is added twice in `drawEndGameText`). | From reading the code |
 | G5 | Eval bar uses a separate evaluator (E7). | Code |
 | G6 | No highlighting of the last move or of a king in check, and no board coordinates. | Code |
 | G7 | You can't choose your side (always White), a difficulty, or a time limit, and there's no board flip. | Code |
