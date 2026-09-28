@@ -378,12 +378,12 @@ def main():
 
         # generate the new set of valid moves when a user makes a valid move
         if move_made:
-            # CRITICAL FIX: Update evaluation IMMEDIATELY after move is made
-            current_evaluation = evaluate_position(gs)
-
             if animate:
                 animate_move(gs.move_log[-1], screen, gs.board, clock)
             legal_moves = gs.get_legal_moves()
+            gs.update_game_status(legal_moves)
+            # Evaluate after the status update so a checkmate shows as "M".
+            current_evaluation = evaluate_position(gs)
             move_made = False
             animate = False
             move_undone = False

@@ -15,10 +15,9 @@ def best_move(gs):
 def delivers_checkmate(gs, move):
     """True if playing `move` checkmates the opponent. Leaves `gs` unchanged."""
     gs.make_move(move)
-    gs.get_legal_moves()  # sets gs.checkmate / gs.stalemate
+    gs.update_game_status()
     mated = gs.checkmate
     gs.undo_move()
-    gs.get_legal_moves()
     return mated
 
 

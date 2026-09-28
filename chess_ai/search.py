@@ -6,9 +6,11 @@ import traceback
 
 from chess_ai.evaluation import (
     PIECE_VALUES,
+    STALEMATE,
     clear_attack_cache,
     evaluate,
     is_opening_phase,
+    mate_score,
 )
 
 MAX_DEPTH = 3  # search depth in plies: raise for strength, lower for speed
@@ -121,8 +123,11 @@ def minimax_alpha_beta(gs, legal_moves, depth, alpha, beta, white_to_move):
     global next_move, nodes_explored
     nodes_explored += 1
 
-    # Quick terminal node check
-    if depth == 0 or gs.checkmate or gs.stalemate:
+    # No legal moves: checkmate or stalemate (decided here, not via flags
+    # set as a side effect of move generation).
+    if not legal_moves:
+        return mate_score(gs, depth) if gs.in_check() else STALEMATE
+    if depth == 0:
         return evaluate(gs, depth)
 
     # Sort moves once at the beginning for better pruning

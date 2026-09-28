@@ -616,15 +616,26 @@ def is_in_check(gs, checking_black):
 
 
 # ---------- Main evaluation function ----------
+def mate_score(gs, depth=0):
+    """Score of a position where the side to move is checkmated.
+
+    `depth` is the number of search plies still remaining when the mate was
+    reached. A mate found with more depth remaining took fewer actual moves
+    (a faster mate); adding it to CHECKMATE makes faster mates score more
+    extreme than slower ones, so the search prefers the fastest available
+    mate and prefers resisting the longest when it is the one being mated.
+    """
+    return -(CHECKMATE + depth) if gs.white_to_move else (CHECKMATE + depth)
+
+
 def evaluate(gs, depth=0):
-    # depth = plies of search still remaining when this terminal position
-    # was reached. A mate found with more depth remaining took fewer
-    # actual moves to arrive at (a faster mate); adding it to CHECKMATE
-    # makes faster mates score more extreme than slower ones, so the
-    # search prefers the fastest available mate and prefers resisting
-    # the longest when it is the one being mated.
+    """Score of the position in pawns from White's point of view.
+
+    Honours ``gs.checkmate`` / ``gs.stalemate`` if they are set; the search
+    detects mate and stalemate itself and never relies on them.
+    """
     if gs.checkmate:
-        return -(CHECKMATE + depth) if gs.white_to_move else (CHECKMATE + depth)
+        return mate_score(gs, depth)
     if gs.stalemate:
         return STALEMATE
 

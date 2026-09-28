@@ -325,8 +325,10 @@ class GameState:
     def get_legal_moves(self):
         """Return the legal moves for the side to move.
 
-        Side effect: sets ``checkmate`` / ``stalemate`` when there are no legal
-        moves (and clears them otherwise). The search relies on this."""
+        This is a pure query: the position (including ``checkmate`` /
+        ``stalemate``) is the same afterwards. Use update_game_status() to
+        refresh those flags.
+        """
         saved_en_passant_square = self.en_passant_square
         saved_castling_rights = CastlingRights(
             self.castling_rights.wks,
@@ -351,15 +353,6 @@ class GameState:
             # we need this to return every thing as before
             self.white_to_move = not self.white_to_move
             self.undo_move()
-        # do we have a checkmate |:) or stalemate (:|
-        if len(moves) == 0:
-            if self.in_check():
-                self.checkmate = True
-            else:
-                self.stalemate = True
-        else:
-            self.checkmate = False
-            self.stalemate = False
         # to generate castle moves
         if self.white_to_move:
             self._get_castle_moves(
@@ -372,6 +365,18 @@ class GameState:
         self.en_passant_square = saved_en_passant_square
         self.castling_rights = saved_castling_rights
         return moves
+
+    def update_game_status(self, legal_moves=None):
+        """Set ``checkmate`` / ``stalemate`` for the side to move.
+
+        Pass the result of get_legal_moves() if it is already known, to avoid
+        generating the moves a second time.
+        """
+        if legal_moves is None:
+            legal_moves = self.get_legal_moves()
+        in_check = not legal_moves and self.in_check()
+        self.checkmate = in_check
+        self.stalemate = not legal_moves and not in_check
 
     def in_check(self):
         """True if the side to move is in check."""

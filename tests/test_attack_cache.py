@@ -15,8 +15,6 @@ fix itself: the en-passant square it temporarily suppresses must be
 restored afterwards.
 """
 
-import pytest
-
 from chess_ai import evaluation
 
 
@@ -84,19 +82,12 @@ def test_off_turn_query_preserves_side_to_move_and_en_passant(load_fen):
     assert gs.en_passant_square == (2, 3)
 
 
-@pytest.mark.xfail(
-    reason="get_all_attacks() calls get_legal_moves() for the side not on move, "
-    "which overwrites gs.checkmate/gs.stalemate -- docs/improvement-plan "
-    "finding R5, fixed in Phase 3",
-    raises=AssertionError,
-    strict=True,
-)
 def test_off_turn_query_leaves_game_over_flags_alone(load_fen):
-    """White to move, not stalemated. Black *would* be stalemated if it were
-    Black's turn, but asking for Black's attacks must not mark the current
-    position as stalemate."""
+    """Regression test for finding R5. White to move, not stalemated. Black
+    *would* be stalemated if it were Black's turn, but asking for Black's
+    attacks must not mark the current position as stalemate."""
     gs = load_fen("7k/5Q2/6K1/8/8/8/8/8 w - -")
-    gs.get_legal_moves()
+    gs.update_game_status()
     assert (gs.checkmate, gs.stalemate) == (False, False)
 
     evaluation.get_all_attacks(gs, False)
