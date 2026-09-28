@@ -192,6 +192,12 @@ def clear_attack_cache(gs):
 
 def get_all_attacks(gs, white_to_move):
     """Squares the given side can move to (from its legal moves), cached per position."""
+    return _legal_moves_and_attacks(gs, white_to_move)[1]
+
+
+def _legal_moves_and_attacks(gs, white_to_move):
+    """(legal moves, set of their destination squares) for one side, cached
+    per position so several evaluation terms can share one move generation."""
     cache_key = _position_key(gs, white_to_move)
     if hasattr(gs, "_attack_cache") and cache_key in gs._attack_cache:
         return gs._attack_cache[cache_key]
@@ -217,8 +223,8 @@ def get_all_attacks(gs, white_to_move):
     # Cache the result
     if not hasattr(gs, "_attack_cache"):
         gs._attack_cache = {}
-    gs._attack_cache[cache_key] = attacks
-    return attacks
+    gs._attack_cache[cache_key] = (moves, attacks)
+    return moves, attacks
 
 
 def is_opening_phase(gs):
@@ -571,7 +577,9 @@ def mobility_score(gs):
 def tactical_score(gs):
     score = 0.0
     original = gs.white_to_move
-    moves = gs.get_legal_moves()
+    # The side to move's legal moves, shared with the attack maps (no second
+    # move generation).
+    moves = _legal_moves_and_attacks(gs, original)[0]
 
     # Quick capture evaluation. A capture that promotes appears once per
     # promotion piece; count it once (as the queen promotion), as before
