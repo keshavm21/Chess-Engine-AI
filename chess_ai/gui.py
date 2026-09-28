@@ -163,6 +163,19 @@ def evaluate_position(gs):
     return score
 
 
+def take_back_move(gs, white_is_human, black_is_human):
+    """Undo the last move, and against the AI also the move before it.
+
+    After undoing, if it is the AI's turn (and a human is playing), the AI's
+    reply is taken back too, so the human is to move again instead of the AI
+    immediately replaying.
+    """
+    gs.undo_move()
+    ai_to_move = not (white_is_human if gs.white_to_move else black_is_human)
+    if ai_to_move and (white_is_human or black_is_human) and gs.move_log:
+        gs.undo_move()
+
+
 def draw_evaluation_bar(screen, evaluation):
     """
     Draw the evaluation bar on the left side of the board
@@ -321,8 +334,8 @@ def main():
                             player_clicks = [selected_square]
             # handling the key presses like ctrl+z, etc..
             elif e.type == p.KEYDOWN:
-                if e.key == p.K_z:  # call undo when z is pressed
-                    gs.undo_move()
+                if e.key == p.K_z:  # undo: back to the human's previous turn
+                    take_back_move(gs, white_is_human, black_is_human)
                     selected_square = ()
                     player_clicks = []
                     move_made = True
@@ -524,10 +537,8 @@ def animate_move(move, screen, board, clock):
 def draw_end_game_text(screen, text):
     font = p.font.SysFont("Helvetica", 32, True, False)
     text_object = font.render(text, 0, p.Color("Gray"))
-    text_location = p.Rect(EVAL_BAR_WIDTH, 0, BOARD_WIDTH, BOARD_HEIGHT).move(
-        EVAL_BAR_WIDTH + BOARD_WIDTH / 2 - text_object.get_width() / 2,
-        BOARD_HEIGHT / 2 - text_object.get_height() / 2,
-    )
+    board_centre = (EVAL_BAR_WIDTH + BOARD_WIDTH // 2, BOARD_HEIGHT // 2)
+    text_location = text_object.get_rect(center=board_centre)
     screen.blit(text_object, text_location)
     text_object = font.render(text, 0, p.Color("Black"))
     screen.blit(text_object, text_location.move(2, 2))
