@@ -1,4 +1,8 @@
-"""Move search: negamax (minimax) with alpha-beta pruning and move ordering."""
+"""Move search: iterative-deepening negamax with alpha-beta pruning.
+
+Searches depth 1, 2, 3, ... until a depth limit or a time limit is reached and
+plays the best move of the deepest completed search.
+"""
 
 import math
 import random
@@ -7,6 +11,7 @@ import traceback
 from dataclasses import dataclass
 
 from chess_ai.evaluation import (
+    CHECKMATE,
     PIECE_VALUES,
     STALEMATE,
     clear_attack_cache,
@@ -16,6 +21,8 @@ from chess_ai.evaluation import (
 )
 
 MAX_DEPTH = 3  # default search depth in plies: raise for strength, lower for speed
+# Safety cap on the depth of a time-limited search.
+MAX_SEARCH_DEPTH = 30
 
 
 # ---------- Move Ordering Heuristics ----------
@@ -73,27 +80,39 @@ class SearchResult:
 
     move: object  # the chosen Move; None only if there are no legal moves
     score: float | None  # from White's point of view; None if nothing was searched
-    depth: int  # search depth in plies (0 if nothing was searched)
-    nodes: int  # positions visited
+    depth: int  # deepest completed search in plies (0 if nothing was searched)
+    nodes: int  # positions visited, including any search cut short by the clock
     cutoffs: int  # alpha-beta cutoffs
     elapsed: float  # seconds
+    timed_out: bool = False  # a deeper search was started but cut short
 
     @property
     def nodes_per_second(self):
         return int(self.nodes / self.elapsed) if self.elapsed > 0 else 0
 
 
-class Searcher:
-    """Negamax search with alpha-beta pruning.
+class _SearchTimeoutError(Exception):
+    """Raised inside the search when the time limit has been reached."""
 
-    All state of a search (node counters, best root move) lives on the
-    instance, so separate searches cannot interfere with each other.
+
+class Searcher:
+    """Iterative-deepening negamax search with alpha-beta pruning.
+
+    Give a `max_depth`, a `time_limit` in seconds, or both. Without a time
+    limit the search is deterministic; with neither, it searches MAX_DEPTH
+    plies. All state of a search lives on the instance, so separate searches
+    cannot interfere with each other.
     """
 
-    def __init__(self, max_depth=MAX_DEPTH):
+    def __init__(self, max_depth=None, time_limit=None):
+        if max_depth is None:
+            max_depth = MAX_DEPTH if time_limit is None else MAX_SEARCH_DEPTH
         self.max_depth = max_depth
+        self.time_limit = time_limit
         self.nodes = 0
         self.cutoffs = 0
+        self._deadline = None  # perf_counter() value at which to stop, if any
+        self._first_root_move = None  # searched first at the root
         self._best_root_move = None
 
     def search(self, gs, legal_moves=None):
@@ -111,22 +130,54 @@ class Searcher:
             move = legal_moves[0] if legal_moves else None
             return SearchResult(move, None, 0, 0, 0, time.perf_counter() - start)
 
-        move, score = self.search_depth(gs, legal_moves, self.max_depth)
+        best_move, best_score, completed_depth, timed_out = None, None, 0, False
+        log_length = len(gs.move_log)
+        for depth in range(1, self.max_depth + 1):
+            # Depth 1 always runs to the end, so there is always a searched move.
+            if depth > 1 and self.time_limit is not None:
+                self._deadline = start + self.time_limit
+            try:
+                move, score = self.search_depth(
+                    gs, legal_moves, depth, first_move=best_move
+                )
+            except _SearchTimeoutError:
+                # Unwind the moves the interrupted search had made on `gs`.
+                while len(gs.move_log) > log_length:
+                    gs.undo_move()
+                timed_out = True
+                break
+            finally:
+                self._deadline = None
+            best_move, best_score, completed_depth = move, score, depth
+
+            if abs(score) >= CHECKMATE:
+                break  # a forced mate was found; searching deeper cannot change it
+            if self.time_limit is not None:
+                # Each depth takes several times longer than all previous ones
+                # together, so once half the time is used the next depth would
+                # not finish; an unfinished depth is discarded anyway.
+                if time.perf_counter() - start >= self.time_limit / 2:
+                    break
+
         return SearchResult(
-            move if move is not None else legal_moves[0],
-            score,
-            self.max_depth,
+            best_move if best_move is not None else legal_moves[0],
+            best_score,
+            completed_depth,
             self.nodes,
             self.cutoffs,
             time.perf_counter() - start,
+            timed_out,
         )
 
-    def search_depth(self, gs, legal_moves, depth):
+    def search_depth(self, gs, legal_moves, depth, first_move=None):
         """One alpha-beta search `depth` plies deep.
 
-        Returns (best move, score from White's point of view). The best move is
-        None when there are no legal moves.
+        `first_move` (usually the best move of the previous depth) is searched
+        first at the root, which lets alpha-beta prune more. Returns (best move,
+        score from White's point of view); the best move is None when there
+        are no legal moves.
         """
+        self._first_root_move = first_move
         self._best_root_move = None
         color = 1 if gs.white_to_move else -1
         # The root window must be unbounded: mate scores are
@@ -146,6 +197,8 @@ class Searcher:
         recorded in `_best_root_move`.
         """
         self.nodes += 1
+        if self._deadline is not None and time.perf_counter() >= self._deadline:
+            raise _SearchTimeoutError
 
         # No legal moves: checkmate or stalemate (decided here, not via flags
         # set as a side effect of move generation).
@@ -161,6 +214,9 @@ class Searcher:
                 key=lambda m: get_move_priority(m, gs, color == 1),
                 reverse=True,
             )
+            if ply == 0 and self._first_root_move in moves:
+                moves.remove(self._first_root_move)
+                moves.insert(0, self._first_root_move)
         else:
             moves = legal_moves
 
@@ -185,7 +241,7 @@ class Searcher:
         return best_score
 
 
-def find_best_move(gs, legal_moves, return_queue=None, max_depth=MAX_DEPTH):
+def find_best_move(gs, legal_moves, return_queue=None, max_depth=None, time_limit=None):
     """Return the best move for the side to move (see Searcher).
 
     When `return_queue` is given (the GUI runs this in a child process), the
@@ -193,7 +249,7 @@ def find_best_move(gs, legal_moves, return_queue=None, max_depth=MAX_DEPTH):
     the first legal move is used, so the GUI never waits forever.
     """
     try:
-        result = Searcher(max_depth).search(gs, legal_moves).move
+        result = Searcher(max_depth, time_limit).search(gs, legal_moves).move
     except Exception:
         traceback.print_exc()
         result = legal_moves[0] if legal_moves else None

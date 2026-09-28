@@ -127,3 +127,18 @@ def test_prefers_mate_in_one_over_slower_mate(fen, load_fen):
     assert delivers_checkmate(gs, chosen), (
         f"a mate in one is available but the engine chose {chosen.coordinate_notation()}"
     )
+
+
+@pytest.mark.parametrize(
+    "fen",
+    [
+        pytest.param("3k4/5R2/8/2K5/4Q3/8/8/8 w - -", id="Qa8#-not-Qd5+"),
+        pytest.param("8/8/1R2Q3/8/8/8/8/k1K5 w - -", id="Ra6#-not-Qe5+"),
+    ],
+)
+def test_single_depth_three_pass_prefers_mate_in_one(fen, load_fen):
+    """The exact path of finding S1: one depth-3 pass without iterative
+    deepening (which would already stop at depth 1 with the mate)."""
+    gs = load_fen(fen)
+    move, _ = search.Searcher().search_depth(gs, gs.get_legal_moves(), 3)
+    assert delivers_checkmate(gs, move)
