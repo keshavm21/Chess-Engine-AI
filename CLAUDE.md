@@ -13,10 +13,11 @@ source venv/bin/activate              # or prefix commands with ./venv/bin/pytho
 pip install -r requirements-dev.txt   # runtime (pygame) + dev tools (pytest, ruff)
 
 python -m chess_ai                    # launch the GUI (human = White, AI = Black; Z = undo, R = reset)
-python -m chess_ai.benchmark          # perft + search benchmark (~5 s); --perft-only, --json PATH; log results in docs/benchmarks.md
+python -m chess_ai.benchmark          # perft + fixed-depth and 1 s timed search (~10 s); --perft-only, --time-limit S, --json PATH; log results in docs/benchmarks.md
+python -m chess_ai.tactics            # tactics suite solve rate at the default 2 s/move; --depth N for deterministic runs, --json PATH
 
-pytest                                # full suite, ~4 s (this is what CI runs)
-pytest -m "not slow"                  # skips deep perft, ~2 s
+pytest                                # full suite, ~30 s (this is what CI runs)
+pytest -m "not slow"                  # skips deep perft and the tactics re-verification, ~4 s
 pytest tests/test_search.py::test_single_legal_move_is_still_immediate   # a single test
 pytest "tests/test_perft.py::test_perft[kiwipete-d2]"                   # a single parametrized case
 ruff check .                          # lint, including PEP 8 naming (N) and import order (I)
@@ -31,7 +32,7 @@ ruff format .                         # formatter; CI runs `ruff format --check 
 
 ## Architecture
 
-Package `chess_ai/`: `engine.py` (rules), `search.py` (alpha-beta), `evaluation.py` (scoring), `gui.py` (pygame), `benchmark.py`, `__main__.py` (entry point). Piece sprites are in `chess_ai/assets/pieces/`.
+Package `chess_ai/`: `engine.py` (rules), `search.py` (iterative-deepening negamax), `evaluation.py` (scoring), `gui.py` (pygame), `benchmark.py`, `tactics.py` (verified puzzle suite), `__main__.py` (entry point). Piece sprites are in `chess_ai/assets/pieces/`.
 
 ### Board and move model (`engine.py`)
 - `GameState.board` is an 8×8 list of 2-char strings: color (`w`/`b`) plus piece (`K Q R B N p`; pawns are lowercase). Empty squares are `"--"`. Row 0 is Black's back rank (rank 8), and row 7 is White's.
@@ -49,16 +50,17 @@ Package `chess_ai/`: `engine.py` (rules), `search.py` (alpha-beta), `evaluation.
 - `test_perft.py` also snapshots the full state around every make/undo pair and checks it's restored exactly. Run it after touching `make_move`, `undo_move`, move generation, or castling/en passant logic.
 
 ### Search (`search.py`) and evaluation (`evaluation.py`)
-- The entry point is `search.find_best_move(gs, legal_moves, return_queue=None)`. It returns a single legal move immediately and otherwise runs `minimax_alpha_beta` at `MAX_DEPTH` (3) with an unbounded root window (±∞; a ±`CHECKMATE` window cut off faster mates, finding S1). Exceptions are printed, and the function falls back to `legal_moves[0]`.
-- `minimax_alpha_beta` detects checkmate and stalemate from an empty `legal_moves` list (`mate_score()` / `STALEMATE`), not from the flags.
-- Search state lives in module-level globals. `next_move` is only recorded when `depth == MAX_DEPTH`, so the root must be called with `MAX_DEPTH`. `nodes_explored` is reset on each search and read by the benchmark.
-- Move ordering (`get_move_priority`: MVV-LVA captures, promotions, checks, development, center) is applied only at the top two plies, and it does a make/undo per move to detect checks. Killer moves and a history heuristic aren't implemented, even though an old commit message mentions them.
+- `Searcher(max_depth=None, time_limit=None).search(gs)` returns a `SearchResult` (move, score from White's view, completed depth, nodes, cutoffs, elapsed, timed_out). All search state lives on the `Searcher`; there are no module globals. `find_best_move(gs, legal_moves, return_queue=None, max_depth=None, time_limit=None)` is the thin wrapper the GUI runs in a child process (exceptions → `legal_moves[0]`).
+- Iterative deepening: depths 1, 2, 3, … up to `max_depth` (default `MAX_DEPTH` = 3 when there is no time limit, so tests and the benchmark are deterministic). The move of the last **completed** depth is played; depth 1 is never interrupted. The previous depth's best move is searched first. The search stops early on a forced mate, and once half the time budget is used (the next depth could not finish). On timeout `_negamax` raises `_SearchTimeoutError` at node entry, and `search()` restores the position by undoing moves back to the starting `move_log` length.
+- `search_depth(gs, legal_moves, depth)` is one fixed-depth pass with an unbounded root window (±∞; a ±`CHECKMATE` window cut off faster mates, finding S1). `_negamax` scores from the side to move's view (`color` = ±1); it was verified to give bit-identical moves, scores and node counts to the old two-branch minimax. It detects checkmate and stalemate from an empty `legal_moves` list (`mate_score()` / `STALEMATE`), not from the flags.
+- Difficulty presets: `DIFFICULTIES` (`easy` 0.5 s + depth cap 2, `medium` 2 s, `hard` 5 s) and `DEFAULT_DIFFICULTY`; calibrated in Phase 5 (see `docs/benchmarks.md`).
+- Move ordering (`get_move_priority`: MVV-LVA captures, promotions, checks, development, center) is applied only at the top two plies (`ply <= 1`), and it does a make/undo per move to detect checks. Killer moves and a history heuristic aren't implemented, even though an old commit message mentions them.
 - `evaluation.evaluate(gs, depth)` scores in pawn units (Q = 10), always from White's point of view. Mate scores are `±(CHECKMATE + depth)` (`CHECKMATE = 1000`, from `mate_score()`) so the search prefers faster mates. Non-mate scores are clamped to ±`CHECKMATE`. The evaluation sums material and PSTs, bishop pair, rook files, opening principles, mobility, king safety, check bonus, pawn structure, and a tactical term.
 - There are two caches, both in `evaluation.py`:
   - `eval_cache` is module-level, persists across searches, and uses LFU eviction at 1000 entries. Its key is **board + side to move only**; castling rights and the en passant square aren't part of it.
   - `gs._attack_cache` is attached dynamically to the `GameState`. Its key comes from `_position_key` (board, side, en passant, castling), and `search.find_best_move` clears it through `clear_attack_cache()` before each search. `get_all_attacks` builds it from *legal* moves (`get_legal_moves`) after temporarily flipping `white_to_move`, and it suppresses en passant for the side not on move so make/undo isn't corrupted. The cache stores `(legal_moves, destination_squares)` via `_legal_moves_and_attacks`, so `tactical_score` reuses the side to move's moves instead of generating them again.
 
 ### GUI (`gui.py`)
-- The pygame loop runs the AI in a `multiprocessing.Process` and passes a `Queue` as `return_queue`. The `GameState` is pickled into the child process, so globals the child sets (`nodes_explored`, `eval_cache`) never reach the GUI process. Undo and reset terminate the running AI process.
+- The pygame loop runs the AI in a `multiprocessing.Process` and passes a `Queue` as `return_queue`. The search limits come from `gui.AI_DIFFICULTY` (the default preset until Phase 8 adds a selector). The `GameState` is pickled into the child process, so the child's caches (`eval_cache`) never reach the GUI process. Undo and reset terminate the running AI process.
 - Undo goes through `take_back_move()`, which against the AI also takes back the AI's reply so the human is to move again. GUI logic that can be tested without a window lives in plain functions like this and is covered by `tests/test_gui.py` (pygame dummy video driver).
 - The evaluation bar uses `gui.evaluate_position()`, which is a separate, simpler evaluator (Q = 9, its own PSTs). It is **not** `evaluation.evaluate`, so the bar doesn't reflect what the engine thinks.

@@ -180,14 +180,19 @@ docs: record Phase 4 performance results
 
 **Verification:** at fixed depth the results match Phase 4. A test checks that the time limit is respected and a legal move is always returned. Tactics solve rate recorded as the baseline for Phase 6. GUI smoke test.
 
-**Planned commits:**
+**Outcome (2026-09-28):** 160 tests pass (60 new). Both refactors (the `Searcher` class, then negamax) are bit-identical to the old search: moves, scores and node counts on 76 reference searches. Iterative deepening gives the same score and move as a single search on all 20 depth-3 reference positions, for +1 % nodes. The time limit is honoured to within 0.04 s. An interrupted search restores the position exactly, and depth 1 always completes. Presets measured and set: easy 0.5 s (max depth 2), medium 2 s (default, used by the GUI), hard 5 s. Tactics baseline: 17/22 at depth 3, **19/22 (86 %) at 2 s**. The failures are two mate-in-3 puzzles and the poisoned-pawn traps (the horizon effect). GUI driven headlessly with the time-limited AI: moves, AI reply and both undo scenarios behave correctly. Notes:
+- The search stops once half the time budget is used, because the next depth could not finish and unfinished depths are discarded. It also stops as soon as a forced mate is found.
+- The tactics answers are not hand-written. An exhaustive solver computed them (a forced-mate search, or a material-only full-width search to 4 plies plus captures), and `tests/test_tactics.py` re-derives them, so a wrong answer cannot creep in.
+
+**Commits:**
 ```
 refactor: encapsulate search state in a Searcher class
 refactor: convert alpha-beta search to negamax
 feat: add iterative deepening with a time limit
 feat: add difficulty presets based on search time
-feat: report search statistics in benchmark
-test: add tactics suite with solve-rate reporting
+feat: report search depth and cutoffs in benchmark
+test: add tactics suite with verified answers and solve-rate reporting
+docs: record Phase 5 results and update guides
 ```
 
 ---

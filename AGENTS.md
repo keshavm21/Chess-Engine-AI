@@ -50,7 +50,8 @@ repository before deciding what remains to be done.
 
 ## Search
 
-The search implementation currently uses Minimax with Alpha-Beta pruning.
+The search implementation currently uses Minimax with Alpha-Beta pruning
+(written as negamax), with iterative deepening under a time limit.
 
 When modifying search:
 

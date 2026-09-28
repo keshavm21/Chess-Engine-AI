@@ -100,3 +100,50 @@ Since the original baseline (Python 3.9, 120.24 s for the four searches), the se
 Test suite: `pytest` ~4 s (was ~32 s), `pytest -m "not slow"` ~2 s.
 
 Where the time goes now (cProfile, middlegame search): mostly the evaluation, which generates legal moves for both sides to build its attack maps. Making that cheaper would change what the evaluation computes, so it belongs to the evaluation rewrite in Phase 6.
+
+---
+
+## Phase 5: search framework (iterative deepening, time limit)
+
+| | |
+|---|---|
+| Date | 2026-09-28 |
+| Commands | `python -m chess_ai.benchmark`, `python -m chess_ai.tactics` |
+| Machine / Python | Apple M1, macOS / 3.12.14 |
+
+**Refactors checked for identical results.** Replacing the module globals with a `Searcher` class and rewriting minimax as negamax were both verified against the pre-Phase-5 search on 76 positions (4 benchmark positions at depth 3, 16 random-game positions at depth 3, 56 at depth 2). Moves, scores (bit for bit) and node counts were identical.
+
+**Fixed depth 3, now reached by iterative deepening (1 → 2 → 3):**
+
+| Position | Nodes before | Nodes now | Time now | Cutoffs | Move |
+|---|---|---|---|---|---|
+| Starting position | 1 018 | 1 159 | 0.27 s | 72 | b1c3 |
+| Italian Game | 2 015 | 2 339 | 0.74 s | 151 | g8f6 |
+| Middlegame | 2 742 | 2 910 | 1.05 s | 156 | e1c1 |
+| Kiwipete | 3 989 | 4 194 | 1.87 s | 142 | e2a6 |
+| **Total** | **9 764** | **10 602 (+9 %)** | **3.92 s** (was 3.49 s) | | unchanged |
+
+On the 20 depth-3 reference positions, iterative deepening gave the **same score and move** as a single depth-3 search in all 20. It cost only +1 % nodes in total, because searching the previous best move first makes the last depth cheaper.
+
+**Depth reached within a time budget** (20 positions: 4 benchmark + 16 from random games). These measurements set the difficulty presets:
+
+| Time limit | Depth reached | Preset |
+|---|---|---|
+| 0.5 s | mostly 2 (13×), 3 (5×), 4 (2×) | easy (also capped at depth 2) |
+| 1 s | mostly 3 (14×) | |
+| 2 s | 3 (16×), 4 (3×), 5 (1×) | **medium (default)** |
+| 3 s | 3 (13×), 4 (5×), 5 (2×) | |
+| 5 s | 4 (10×), 3 (8×), 5 (2×) | hard |
+
+The time limit is honoured to within 0.04 s.
+
+**Tactics suite** (22 puzzles with exhaustively verified answers; `python -m chess_ai.tactics`). This is the baseline for Phase 6:
+
+| Limit | All | Mate in 1 | Mate in 2 | Mate in 3 | Win material | Avoid blunder |
+|---|---|---|---|---|---|---|
+| Fixed depth 3 | 17/22 (77 %) | 5/5 | 4/4 | 0/3 | 6/6 | 2/4 |
+| 2 s per move (medium) | **19/22 (86 %)** | 5/5 | 4/4 | 2/3 | 6/6 | 2/4 |
+
+The two unsolved "avoid" puzzles are the poisoned-pawn traps (Nxe5?? Qa5+ and its mirror). They are the horizon effect: the refutation is 4 plies deep, and these positions only reach depth 3. That is what Phase 6's quiescence search is for.
+
+Test suite: `pytest` ~30 s (it now re-verifies the tactics answers exhaustively), `pytest -m "not slow"` ~4 s.
