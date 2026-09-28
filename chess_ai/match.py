@@ -28,8 +28,9 @@ from chess_ai.engine import GameState
 CONFIGS = {
     "default": {},
     "depth-1": {"max_depth": 1},
+    "no-quiescence": {"quiescence": False},
     # The Phase 5 engine: the old evaluation, kept until Phase 6 is proven better.
-    "phase5": {"evaluator": legacy_evaluation.evaluate_centipawns},
+    "phase5": {"evaluator": legacy_evaluation.evaluate_centipawns, "quiescence": False},
 }
 
 # Well-known openings (coordinate notation), roughly balanced for both sides.

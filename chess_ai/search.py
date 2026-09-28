@@ -10,7 +10,7 @@ import time
 import traceback
 from dataclasses import dataclass
 
-from chess_ai.evaluation import CHECKMATE, STALEMATE, evaluate
+from chess_ai.evaluation import CHECKMATE, PIECE_VALUES, STALEMATE, evaluate
 
 MAX_DEPTH = 3  # default search depth in plies: raise for strength, lower for speed
 # Safety cap on the depth of a time-limited search.
@@ -21,6 +21,12 @@ MATE_THRESHOLD = CHECKMATE - 1000
 
 # Piece values for move ordering (in pawns).
 ORDER_VALUES = {"K": 0, "Q": 10, "R": 5, "B": 3, "N": 3, "p": 1}
+
+# Quiescence pruning (centipawns): skip a capture that could not raise the score
+# even if the captured piece were won for free plus this margin ...
+DELTA_MARGIN = 200
+# ... or that trades a piece for a defended one worth this much less.
+LOSING_CAPTURE_MARGIN = 50
 
 
 @dataclass(frozen=True)
@@ -84,6 +90,14 @@ def get_move_priority(move, gs, is_white):
     return priority
 
 
+def _capture_order(move):
+    """Sort key: most valuable victim first, then least valuable attacker
+    (MVV-LVA); a queen promotion counts like capturing a queen."""
+    victim = ORDER_VALUES[move.piece_captured[1]] if move.is_capture else 0
+    promotion = ORDER_VALUES[move.promotion_piece] if move.promotion_piece else 0
+    return 10 * (victim + promotion) - ORDER_VALUES[move.piece_moved[1]]
+
+
 def _is_opening_phase(gs):
     """More than 28 pieces (including pawns) are still on the board."""
     return sum(sq != "--" for row in gs.board for sq in row) > 28
@@ -102,10 +116,11 @@ class SearchResult:
     move: object  # the chosen Move; None only if there are no legal moves
     score: int | None  # centipawns, White's point of view; None if nothing was searched
     depth: int  # deepest completed search in plies (0 if nothing was searched)
-    nodes: int  # positions visited, including any search cut short by the clock
+    nodes: int  # positions visited (incl. quiescence), incl. a search cut short
     cutoffs: int  # alpha-beta cutoffs
     elapsed: float  # seconds
     timed_out: bool = False  # a deeper search was started but cut short
+    qnodes: int = 0  # of `nodes`, those visited by the quiescence search
 
     @property
     def nodes_per_second(self):
@@ -125,14 +140,19 @@ class Searcher:
     cannot interfere with each other.
     """
 
-    def __init__(self, max_depth=None, time_limit=None, evaluator=None):
+    def __init__(
+        self, max_depth=None, time_limit=None, evaluator=None, quiescence=True
+    ):
         if max_depth is None:
             max_depth = MAX_DEPTH if time_limit is None else MAX_SEARCH_DEPTH
         self.max_depth = max_depth
         self.time_limit = time_limit
         # Static evaluation in centipawns from White's point of view.
         self.evaluate = evaluator if evaluator is not None else evaluate
+        # Play out captures at the leaves instead of evaluating mid-exchange.
+        self.quiescence = quiescence
         self.nodes = 0
+        self.qnodes = 0
         self.cutoffs = 0
         self._deadline = None  # perf_counter() value at which to stop, if any
         self._first_root_move = None  # searched first at the root
@@ -143,7 +163,7 @@ class Searcher:
         start = time.perf_counter()
         if legal_moves is None:
             legal_moves = gs.get_legal_moves()
-        self.nodes = self.cutoffs = 0
+        self.nodes = self.qnodes = self.cutoffs = 0
 
         # No move, or a single legal move: nothing to decide. Two or three
         # legal moves are a real decision (often the only replies to a
@@ -189,6 +209,7 @@ class Searcher:
             self.cutoffs,
             time.perf_counter() - start,
             timed_out,
+            self.qnodes,
         )
 
     def search_depth(self, gs, legal_moves, depth, first_move=None):
@@ -226,6 +247,8 @@ class Searcher:
         if not legal_moves:
             return -(CHECKMATE - ply) if gs.in_check() else STALEMATE
         if depth == 0:
+            if self.quiescence:
+                return self._quiesce(gs, alpha, beta, color, ply, legal_moves)
             return color * self.evaluate(gs)
 
         # Sort moves at the top two plies for better pruning
@@ -239,7 +262,8 @@ class Searcher:
                 moves.remove(self._first_root_move)
                 moves.insert(0, self._first_root_move)
         else:
-            moves = legal_moves
+            # Deeper down only a cheap ordering: captures first (MVV-LVA).
+            moves = sorted(legal_moves, key=_capture_order, reverse=True)
 
         best_score = -math.inf
         for move in moves:
@@ -260,6 +284,73 @@ class Searcher:
                 self.cutoffs += 1
                 break
         return best_score
+
+    def _quiesce(self, gs, alpha, beta, color, ply, legal_moves=None):
+        """Quiescence search: keep playing captures (and queen promotions) until
+        the position is quiet, so it is never evaluated in the middle of an
+        exchange -- the "horizon effect".
+
+        The side to move may also "stand pat" on the static evaluation instead
+        of capturing, except when in check: then every legal move is searched,
+        so mates are still found. `legal_moves`, when the caller already has
+        them, saves generating them again.
+        """
+        self.nodes += 1
+        self.qnodes += 1
+        if self._deadline is not None and time.perf_counter() >= self._deadline:
+            raise _SearchTimeoutError
+
+        if gs.in_check():
+            moves = legal_moves if legal_moves is not None else gs.get_legal_moves()
+            if not moves:
+                return -(CHECKMATE - ply)
+            best_score = -math.inf
+        else:
+            best_score = color * self.evaluate(gs)  # stand pat
+            if best_score >= beta:
+                return best_score
+            alpha = max(alpha, best_score)
+            if legal_moves is None:
+                moves = gs.get_legal_moves(captures_only=True)
+            else:
+                moves = [m for m in legal_moves if m.is_capture or m.is_promotion]
+            # Underpromotions are almost never better than a queen.
+            moves = [m for m in moves if m.promotion_piece in (None, "Q")]
+
+        in_check = best_score == -math.inf
+        moves.sort(key=_capture_order, reverse=True)
+        for move in moves:
+            if not in_check and self._futile_capture(gs, move, best_score, alpha):
+                continue
+            gs.make_move(move)
+            score = -self._quiesce(gs, -beta, -alpha, -color, ply + 1)
+            gs.undo_move()
+            if score > best_score:
+                best_score = score
+            alpha = max(alpha, score)
+            if alpha >= beta:
+                self.cutoffs += 1
+                break
+        return best_score
+
+    @staticmethod
+    def _futile_capture(gs, move, stand_pat, alpha):
+        """True for a quiescence capture that is not worth searching: either it
+        cannot raise the score even if the captured piece comes for free (delta
+        pruning), or a more valuable piece takes a defended one (a cheap stand-in
+        for a static exchange evaluation). Only used when not in check."""
+        gain = PIECE_VALUES[move.piece_captured[1]] if move.is_capture else 0
+        if move.promotion_piece:
+            gain += PIECE_VALUES[move.promotion_piece] - PIECE_VALUES["p"]
+        if stand_pat + gain + DELTA_MARGIN < alpha:
+            return True
+        attacker = PIECE_VALUES[move.piece_moved[1]]
+        if move.is_capture and attacker - gain > LOSING_CAPTURE_MARGIN:
+            defended = gs.is_attacked_by(
+                move.end_row, move.end_col, not gs.white_to_move
+            )
+            return defended
+        return False
 
 
 def find_best_move(gs, legal_moves, return_queue=None, max_depth=None, time_limit=None):
