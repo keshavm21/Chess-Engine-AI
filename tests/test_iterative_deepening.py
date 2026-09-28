@@ -95,3 +95,22 @@ def test_find_best_move_accepts_a_time_limit():
     gs = GameState.from_fen(START)
     move = search.find_best_move(gs, gs.get_legal_moves(), time_limit=0.2)
     assert is_legal(gs, move)
+
+
+def test_difficulty_presets_are_well_formed():
+    assert search.DEFAULT_DIFFICULTY in search.DIFFICULTIES
+    limits = [search.DIFFICULTIES[name] for name in ("easy", "medium", "hard")]
+    assert all(level.time_limit > 0 for level in limits)
+    # Harder levels think longer.
+    assert [level.time_limit for level in limits] == sorted(
+        level.time_limit for level in limits
+    )
+
+
+def test_easy_preset_respects_its_depth_cap_and_time():
+    easy = search.DIFFICULTIES["easy"]
+    gs = GameState.from_fen(START)
+    result = search.Searcher(easy.max_depth, easy.time_limit).search(gs)
+    assert result.depth <= easy.max_depth
+    assert result.elapsed < easy.time_limit + 0.35
+    assert is_legal(gs, result.move)

@@ -25,6 +25,24 @@ MAX_DEPTH = 3  # default search depth in plies: raise for strength, lower for sp
 MAX_SEARCH_DEPTH = 30
 
 
+@dataclass(frozen=True)
+class Difficulty:
+    """Search limits for one difficulty level."""
+
+    time_limit: float  # seconds per move
+    max_depth: int | None = None  # optional depth cap in plies
+
+
+# Measured on an Apple M1 (Phase 5): 0.5 s reaches depth 2-3, 2 s reaches
+# depth 3 (sometimes 4-5) and 5 s mostly depth 4 in middlegame positions.
+DIFFICULTIES = {
+    "easy": Difficulty(time_limit=0.5, max_depth=2),
+    "medium": Difficulty(time_limit=2.0),
+    "hard": Difficulty(time_limit=5.0),
+}
+DEFAULT_DIFFICULTY = "medium"
+
+
 # ---------- Move Ordering Heuristics ----------
 def get_move_priority(move, gs, is_white):
     """Assign priority to moves for better alpha-beta pruning"""
