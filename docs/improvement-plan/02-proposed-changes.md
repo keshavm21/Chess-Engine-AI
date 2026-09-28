@@ -208,5 +208,5 @@ Examples of the identifier rename. The final list gets settled at the start of P
 | 2 | Minimum Python version | **3.10+**. 3.9 is end-of-life, and the macOS system Python 3.9 is the only reason to keep it |
 | 3 | Dev dependencies | **pytest + ruff** now; **python-chess** optional (dev-only, G8) |
 | 4 | License | **MIT**, unless you keep the Sunfish-derived tables (E6). Then either use GPL-3.0 or replace the tables |
-| 5 | Default AI time per move and difficulty levels | Easy ≈ 0.5 s, Medium ≈ 2 s, Hard ≈ 5 s. Calibrate after Phase 4 |
+| 5 | Default AI time per move and difficulty levels | ✅ **Decided in Phase 5** from measurements: easy 0.5 s (depth cap 2), medium 2 s (default), hard 5 s |
 | 6 | Keep the opening heuristics? | **Mostly remove**; let the piece-square tables do the work (E3) |

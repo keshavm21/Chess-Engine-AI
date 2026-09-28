@@ -11,6 +11,9 @@ import pygame as p
 from chess_ai import search
 from chess_ai.engine import GameState, Move
 
+# AI strength: one of search.DIFFICULTIES (a selector comes with Phase 8).
+AI_DIFFICULTY = search.DEFAULT_DIFFICULTY
+
 # Piece sprites live next to this module.
 IMAGE_PATH = os.path.join(os.path.dirname(__file__), "assets", "pieces")
 
@@ -375,6 +378,10 @@ def main():
                 move_finder_process = Process(
                     target=search.find_best_move,
                     args=(gs, legal_moves, return_queue),
+                    kwargs={
+                        "max_depth": search.DIFFICULTIES[AI_DIFFICULTY].max_depth,
+                        "time_limit": search.DIFFICULTIES[AI_DIFFICULTY].time_limit,
+                    },
                 )
                 move_finder_process.start()
 

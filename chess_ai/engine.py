@@ -14,6 +14,49 @@ _FEN_FROM_PIECE = {piece: letter for letter, piece in _PIECE_FROM_FEN.items()}
 # Pieces a pawn may promote to; the queen comes first so it is searched first.
 PROMOTION_PIECES = ("Q", "R", "B", "N")
 
+# (row, col) steps used by attack detection.
+_KNIGHT_JUMPS = ((-2, -1), (-2, 1), (-1, -2), (-1, 2), (1, -2), (1, 2), (2, -1), (2, 1))
+_KING_STEPS = ((-1, -1), (-1, 0), (-1, 1), (0, -1), (0, 1), (1, -1), (1, 0), (1, 1))
+_STRAIGHT_RAYS = ((-1, 0), (1, 0), (0, -1), (0, 1))
+_DIAGONAL_RAYS = ((-1, -1), (-1, 1), (1, -1), (1, 1))
+
+
+def _on_board(r, c):
+    return 0 <= r < 8 and 0 <= c < 8
+
+
+def _step_targets(steps):
+    """For every square, the on-board squares one step away (knight or king)."""
+    return [
+        [
+            tuple((r + dr, c + dc) for dr, dc in steps if _on_board(r + dr, c + dc))
+            for c in range(8)
+        ]
+        for r in range(8)
+    ]
+
+
+def _ray_targets(directions):
+    """For every square, each ray as the ordered squares it passes through."""
+    tables = [[[] for _ in range(8)] for _ in range(8)]
+    for r in range(8):
+        for c in range(8):
+            for dr, dc in directions:
+                ray, rr, cc = [], r + dr, c + dc
+                while _on_board(rr, cc):
+                    ray.append((rr, cc))
+                    rr, cc = rr + dr, cc + dc
+                if ray:
+                    tables[r][c].append(tuple(ray))
+    return tables
+
+
+# Precomputed once so attack detection only looks up squares.
+_KNIGHT_TARGETS = _step_targets(_KNIGHT_JUMPS)
+_KING_TARGETS = _step_targets(_KING_STEPS)
+_STRAIGHT_LINES = _ray_targets(_STRAIGHT_RAYS)
+_DIAGONAL_LINES = _ray_targets(_DIAGONAL_RAYS)
+
 
 class GameState:
     def __init__(self):
@@ -329,31 +372,13 @@ class GameState:
         ``stalemate``) is the same afterwards. Use update_game_status() to
         refresh those flags.
         """
-        saved_en_passant_square = self.en_passant_square
-        saved_castling_rights = CastlingRights(
-            self.castling_rights.wks,
-            self.castling_rights.bks,
-            self.castling_rights.wqs,
-            self.castling_rights.bqs,
-        )
-        # the easy, but not efficient solution is:
-        # 1. let's generate all the possible moves and don't worry about the kings state
-        moves = self.get_pseudo_legal_moves()
-        # 2. for each move found, make that move
-        # when removing from the list, go backwords :)
-        for i in range(len(moves) - 1, -1, -1):
-            self.make_move(moves[i])
-            # 3. generate all opponent's moves
-            # 4. for each of those moves, check if they attack your king
-            # we need this as the make_move() did swap the players once
-            self.white_to_move = not self.white_to_move
-            if self.in_check():
-                # 5. if they do, it's not a valid move
-                moves.remove(moves[i])
-            # we need this to return every thing as before
-            self.white_to_move = not self.white_to_move
-            self.undo_move()
-        # to generate castle moves
+        # Generate every move, then keep those that don't leave our king attacked.
+        moves = [
+            move
+            for move in self.get_pseudo_legal_moves()
+            if not self._leaves_king_in_check(move)
+        ]
+        # Castling moves check their own safety conditions.
         if self.white_to_move:
             self._get_castle_moves(
                 self.white_king_location[0], self.white_king_location[1], moves
@@ -362,9 +387,46 @@ class GameState:
             self._get_castle_moves(
                 self.black_king_location[0], self.black_king_location[1], moves
             )
-        self.en_passant_square = saved_en_passant_square
-        self.castling_rights = saved_castling_rights
         return moves
+
+    def _leaves_king_in_check(self, move):
+        """True if playing `move` (not a castling move) would leave the mover's
+        king attacked.
+
+        Only the board squares that matter for attacks are changed and restored;
+        a full make_move/undo_move would also update logs, castling rights and
+        the en-passant square. A promoted piece blocks the same lines as the
+        pawn it replaces, so promotions need no special handling here.
+        """
+        board = self.board
+        white = move.piece_moved[0] == "w"
+        start_r, start_c, end_r, end_c = (
+            move.start_row,
+            move.start_col,
+            move.end_row,
+            move.end_col,
+        )
+
+        end_before = board[end_r][end_c]
+        board[start_r][start_c] = "--"
+        board[end_r][end_c] = move.piece_moved
+        if move.is_en_passant:  # the captured pawn stands beside the start square
+            captured_before = board[start_r][end_c]
+            board[start_r][end_c] = "--"
+
+        if move.piece_moved[1] == "K":
+            king_r, king_c = end_r, end_c
+        else:
+            king_r, king_c = (
+                self.white_king_location if white else self.black_king_location
+            )
+        attacked = self.is_attacked_by(king_r, king_c, not white)
+
+        if move.is_en_passant:
+            board[start_r][end_c] = captured_before
+        board[end_r][end_c] = end_before
+        board[start_r][start_c] = move.piece_moved
+        return attacked
 
     def update_game_status(self, legal_moves=None):
         """Set ``checkmate`` / ``stalemate`` for the side to move.
@@ -390,18 +452,53 @@ class GameState:
             )
 
     def is_square_attacked(self, r, c):
-        """True if the side not to move has a move landing on square (r, c)."""
-        # first switch to the opponents move
-        self.white_to_move = not self.white_to_move
-        # generate all of its moves
-        opponent_moves = self.get_pseudo_legal_moves()
-        self.white_to_move = not self.white_to_move  # switch the turns back
-        # check if any of those moves is attacking my kings location
-        for move in opponent_moves:
-            if move.end_row == r and move.end_col == c:  # now my king is under attack
-                # note: we have done the move on our back end, so no need to undo_move() it
+        """True if the side not to move attacks square (r, c)."""
+        return self.is_attacked_by(r, c, not self.white_to_move)
+
+    def is_attacked_by(self, r, c, by_white):
+        """True if a piece of the given side attacks square (r, c).
+
+        Scans outward from the square instead of generating the attacker's
+        moves: the two pawn squares, the knight and king squares, then each
+        straight and diagonal ray up to the first piece. What stands on (r, c)
+        itself does not matter, so this also works for empty squares (e.g. the
+        squares a castling king passes through).
+        """
+        board = self.board
+        color = "w" if by_white else "b"
+
+        # A pawn attacks diagonally forward, so a white pawn attacking (r, c)
+        # stands one row below it (r + 1) and a black pawn one row above.
+        pawn_row = r + 1 if by_white else r - 1
+        if 0 <= pawn_row < 8:
+            pawn = color + "p"
+            if c > 0 and board[pawn_row][c - 1] == pawn:
                 return True
-        return False  # none of my opponents move will be attacking my king
+            if c < 7 and board[pawn_row][c + 1] == pawn:
+                return True
+
+        knight = color + "N"
+        for rr, cc in _KNIGHT_TARGETS[r][c]:
+            if board[rr][cc] == knight:
+                return True
+        king = color + "K"
+        for rr, cc in _KING_TARGETS[r][c]:
+            if board[rr][cc] == king:
+                return True
+
+        queen = color + "Q"
+        for lines, slider in (
+            (_STRAIGHT_LINES[r][c], color + "R"),
+            (_DIAGONAL_LINES[r][c], color + "B"),
+        ):
+            for ray in lines:
+                for rr, cc in ray:
+                    piece = board[rr][cc]
+                    if piece != "--":
+                        if piece == slider or piece == queen:
+                            return True
+                        break
+        return False
 
     def get_pseudo_legal_moves(self):
         """All moves for the side to move, ignoring whether they leave the king in check."""

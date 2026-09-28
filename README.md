@@ -3,16 +3,17 @@
 This is a fully functional **Chess Engine** written in Python using `pygame`. It features a custom AI opponent capable of looking ahead using the **Minimax algorithm** with **Alpha-Beta pruning** and advanced positional evaluation heuristics.
 
 - **Engine:** Handles move generation, validation, castling, en passant, promotion (including underpromotion), and checkmate/stalemate detection.
-- **AI:** Minimax search (depth 3) with Alpha-Beta pruning, move ordering, an evaluation cache, and opening principles.
+- **AI:** Minimax search (as negamax) with Alpha-Beta pruning and iterative deepening under a time limit (about 2 seconds per move by default), move ordering, an evaluation cache, and opening principles.
 - **UI:** Graphical interface with move logging, valid move highlighting, and a live evaluation bar.
 - **Platforms:** Developed on macOS; the test suite runs on Linux (Ubuntu) in CI. Windows is untested.
 
 ## Files
 - `chess_ai/gui.py` — The GUI (pygame event loop, drawing, running the AI)
 - `chess_ai/engine.py` — The game state (board, rules, legal move generation, FEN)
-- `chess_ai/search.py` — The AI search (Minimax with Alpha-Beta pruning, move ordering)
+- `chess_ai/search.py` — The AI search (Minimax/negamax with Alpha-Beta pruning, iterative deepening, time limit, move ordering)
 - `chess_ai/evaluation.py` — Position evaluation (material, piece-square tables, heuristics)
-- `chess_ai/benchmark.py` — Search benchmark
+- `chess_ai/benchmark.py` — Performance benchmark (move generation and search)
+- `chess_ai/tactics.py` — Tactics suite (puzzles with verified answers) to measure playing strength
 - `chess_ai/assets/pieces/` — Piece images (`wp.png`, `bK.png`, etc.)
 - `tests/` — Test suite (pytest)
 - `requirements.txt` / `requirements-dev.txt` — Runtime dependencies (pygame) / development tools (pytest, ruff)
@@ -66,7 +67,8 @@ A window will open showing the chess board. You play as White (bottom), and the 
 The AI (`chess_ai/search.py` and `chess_ai/evaluation.py`) combines the following techniques.
 
 ### Algorithm
-- **Minimax with Alpha-Beta Pruning** — efficient search tree pruning
+- **Minimax with Alpha-Beta Pruning** — efficient search tree pruning, implemented as negamax
+- **Iterative Deepening** — searches 1, 2, 3, … moves deep until the time limit and plays the best move of the deepest completed search
 
 ### Piece-Square Tables
 - Encourages knights to develop toward the center
@@ -84,7 +86,7 @@ The AI (`chess_ai/search.py` and `chess_ai/evaluation.py`) combines the followin
 - **Pawn Structure:** penalties for isolated or doubled pawns; bonuses for passed pawns
 
 ## Performance
-- **Depth:** Default search depth is 3 half-moves (`MAX_DEPTH` in `chess_ai/search.py`)
+- **Time per move:** difficulty presets in `chess_ai/search.py` (easy 0.5 s, medium 2 s, hard 5 s); the GUI uses medium, which typically reaches 3–5 half-moves deep
 - **Caching:** Evaluations of previously seen board positions are cached during a search
 
 ## Features
@@ -93,20 +95,21 @@ The AI (`chess_ai/search.py` and `chess_ai/evaluation.py`) combines the followin
 - Move validation and legal move generation
 - Visual feedback for valid moves
 - Move history with undo functionality
-- AI opponent (search depth set by `MAX_DEPTH` in `chess_ai/search.py`)
+- AI opponent with a time limit per move (difficulty presets in `chess_ai/search.py`; the GUI uses medium)
 
 ## Running the Tests
 
 ```bash
 pip install -r requirements-dev.txt
 pytest                      # full test suite
-python -m chess_ai.benchmark  # search benchmark (takes a minute or two)
+python -m chess_ai.benchmark  # performance benchmark (a few seconds)
+python -m chess_ai.tactics    # tactics suite solve rate (about a minute)
 ```
 
 ## Known Limitations
 - In the GUI, pawns always promote to a queen (the engine and AI support all promotion pieces)
 - No threefold repetition, fifty-move rule, or insufficient-material draw detection
-- AI computation time depends on the position and the machine (from a couple of seconds to over 20 seconds per move at depth 3 on an Apple M1)
+- The AI usually uses its full time (about 2 seconds per move); it answers sooner when it finds a forced mate or has only one legal move. How deep it gets depends on the position and the machine
 - Depth beyond 3 may cause noticeable delays on slower systems
 
 ## License

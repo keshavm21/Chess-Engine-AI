@@ -3,7 +3,7 @@
 A snapshot of the repository as it is today, before the improvement work starts.
 Every finding in this document was checked against the code or by running it. Anything I only inferred from reading the code is labelled *(from reading the code)* or *(not yet verified)*.
 
-> **Status:** Phase 3 fixed R1, R2, R5, R6, S1, G1 and G4 (marked ✅ below); G2 and G3 are partly fixed (🔶).
+> **Status:** Phase 3 fixed R1, R2, R5, R6, S1, G1 and G4 (marked ✅ below); G2 and G3 are partly fixed (🔶). Phase 4 found and fixed R7, and made move generation and search 11–15× faster (see [benchmarks](../benchmarks.md)).
 >
 > **Note:** this is a snapshot from before Phase 2. File and function names here are the old ones (`chessEngine.py`, `getValidMoves`, …). Phase 2 moved the code into the `chess_ai/` package and renamed identifiers to PEP 8; the bugs listed here are otherwise unchanged until the phase that fixes them.
 
@@ -82,6 +82,7 @@ The test suite also checks, after every make/undo pair, that the full game state
 | R4 | **No FEN support in the engine.** The same FEN loader is copied into `test_perft.py`, `test_search.py` and `benchmark.py`. | Code |
 | R5 ✅ *fixed in Phase 3* | `getValidMoves()` **mutates game-over flags**, and `get_all_attacks()` in the search module calls it for the side *not* to move. That call can set `gs.stalemate = True` in a position where the side to move isn't stalemated. It happens to be harmless today only because `tactical_score()` runs last in the evaluation and recomputes the flags for the correct side. Reordering or removing evaluation terms would expose it. | Checked directly with `7k/5Q2/6K1/8/8/8/8/8 w` |
 | R6 ✅ *fixed in Phase 3* | Checkmate/stalemate are decided *before* castling moves are added in `getValidMoves()`. This is harmless: castling is never the only legal move, because the king could always step onto the square it passes through. The ordering is fragile, though. | From reading the code |
+| R7 ✅ *found and fixed in Phase 4* | **Castling through a square attacked only by a pawn was allowed.** Attacks were detected by generating the opponent's moves, and a pawn only generates a diagonal move onto an *occupied* square, so e.g. a black pawn on e2 did not "attack" the empty f1/d1 and White could still castle. | Reproduced for both colours; also found once in 20 000 random positions. Not visible in perft, because the standard positions never reach it |
 
 ---
 
