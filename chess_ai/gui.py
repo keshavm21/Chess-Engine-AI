@@ -7,18 +7,18 @@ import time
 
 sys.path.append(".")
 
-import chessEngine
-import SmartMoveFinder
+from chess_ai import engine as chessEngine
+from chess_ai import search as SmartMoveFinder
 
-from chessEngine import *
-from SmartMoveFinder import *
+from chess_ai.engine import *
+from chess_ai.search import *
 import pygame as p
 import os
 from multiprocessing import Process, Queue
 
 # our current path information:
 current_path = os.path.dirname(__file__)  # Where your .py file is located
-image_path = os.path.join(current_path, "images")  # The image folder path
+image_path = os.path.join(current_path, "assets", "pieces")  # The image folder path
 
 # 400 is another good option and it depends on how good the
 # images you have in terms of quality and resolution and 512 is a power of 2

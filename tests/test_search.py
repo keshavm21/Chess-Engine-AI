@@ -4,8 +4,8 @@ import time
 
 import pytest
 
-import chessEngine
-import SmartMoveFinder
+from chess_ai import engine as chessEngine
+from chess_ai import search as SmartMoveFinder
 
 
 def best_move(gs):

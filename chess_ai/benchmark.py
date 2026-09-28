@@ -12,20 +12,14 @@ This provides a reproducible baseline before any search improvements
 (move ordering, iterative deepening, quiescence search, etc.) are made.
 
 Run with:
-    python3 benchmark.py
+    python -m chess_ai.benchmark
 """
 
-import os
 import sys
 import time
 
-# Make sure the repo root is importable.
-REPO_ROOT = os.path.dirname(os.path.abspath(__file__))
-if REPO_ROOT not in sys.path:
-    sys.path.insert(0, REPO_ROOT)
-
-import chessEngine
-import SmartMoveFinder
+from chess_ai import engine as chessEngine
+from chess_ai import search as SmartMoveFinder
 
 
 # ---------------------------------------------------------------------------

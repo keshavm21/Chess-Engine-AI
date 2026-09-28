@@ -17,7 +17,7 @@ restored afterwards.
 
 import pytest
 
-import SmartMoveFinder
+from chess_ai import search as SmartMoveFinder
 
 
 def fresh_attacks(gs, white):

@@ -22,6 +22,5 @@ select = ["E4", "E7", "E9", "F"]
 # Existing issues in the legacy modules. They are removed in Phase 2 of
 # docs/improvement-plan (wildcard imports, sys.path hacks, unused code), at
 # which point these ignores must be deleted.
-"chessMain.py" = ["F401", "F403", "F405"]
-"SmartMoveFinder.py" = ["F401", "F841"]
-"benchmark.py" = ["E402"]
+"chess_ai/gui.py" = ["F401", "F403", "F405"]
+"chess_ai/search.py" = ["F401", "F841"]

@@ -7,7 +7,7 @@ carries its own copy until then.
 
 import pytest
 
-import chessEngine
+from chess_ai import engine as chessEngine
 
 PIECE_FROM_FEN = {
     "p": "bp",
