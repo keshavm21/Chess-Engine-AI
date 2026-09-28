@@ -26,6 +26,15 @@ def test_main_writes_json_and_reports_success(tmp_path, monkeypatch):
     report = json.loads(out.read_text())
     assert report["perft"][0]["nodes"] == 400 and report["perft"][0]["correct"]
     assert report["search"][0]["move"] == "h8g8"  # Kg8 is the only legal move
+    assert report["timed_search"][0]["move"] == "h8g8"
+
+
+def test_search_statistics_are_reported(monkeypatch):
+    monkeypatch.setattr(benchmark, "SEARCH_POSITIONS", [("start", START)])
+    [row] = benchmark.run_search(max_depth=2)
+    assert row["depth"] == 2 and row["nodes"] > 0 and row["cutoffs"] > 0
+    [row] = benchmark.run_search(time_limit=0.2)
+    assert row["depth"] >= 1 and row["time_s"] < 0.2 + 0.35
 
 
 def test_main_fails_on_a_wrong_perft_count(monkeypatch):

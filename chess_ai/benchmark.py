@@ -6,15 +6,18 @@ Two parts:
 - Perft: counts all legal move sequences to a fixed depth from standard
   positions. It measures move generation plus make/undo on their own, and
   checks the counts against the published values.
-- Search: runs the AI's search on representative positions and records the
-  search depth, time, nodes explored, nodes per second and chosen move.
+- Search: runs the AI's search on representative positions, once to a fixed
+  depth and once with a time limit per position, and records the depth
+  reached, time, nodes, nodes per second, alpha-beta cutoffs and chosen move.
 
-The search is deterministic, so node counts and chosen moves only change
-when search or evaluation behaviour changes; time and nodes per second vary
-a little between runs. Record meaningful results in docs/benchmarks.md.
+The fixed-depth search is deterministic, so its node counts and chosen moves
+only change when search or evaluation behaviour changes; time and nodes per
+second vary a little between runs, and the time-limited search depends on the
+machine. Record meaningful results in docs/benchmarks.md.
 
 Run with:
-    python -m chess_ai.benchmark                 # perft + search (~1 min)
+    python -m chess_ai.benchmark                 # perft + search (~10 s)
+    python -m chess_ai.benchmark --time-limit 2  # 2 s per timed search
     python -m chess_ai.benchmark --perft-only    # just move generation
     python -m chess_ai.benchmark --json out.json # also save the results
 """
@@ -116,46 +119,51 @@ def run_perft():
     return results
 
 
-def run_search():
-    depth = search.MAX_DEPTH
+def run_search(max_depth=None, time_limit=None):
+    """Search every position with the given limits and print a table."""
+    if time_limit is None:
+        title = f"Search, fixed depth {max_depth}"
+    else:
+        title = f"Search, {time_limit:g} s per position"
     print(
-        f"{'Search position (depth ' + str(depth) + ')':<42} {'Time':>8} {'Nodes':>10} {'NPS':>10} {'Move':>8}"
+        f"{title:<42} {'Time':>7} {'Depth':>5} {'Nodes':>8} {'NPS':>7} "
+        f"{'Cutoffs':>7} {'Move':>6}"
     )
-    print("-" * 82)
+    print("-" * 88)
     results = []
     for name, fen in SEARCH_POSITIONS:
         gs = GameState.from_fen(fen)
         legal_moves = gs.get_legal_moves()
-
-        t0 = time.perf_counter()
-        result = search.Searcher(depth).search(gs, list(legal_moves))
-        elapsed = time.perf_counter() - t0
-
-        nodes = result.nodes
+        result = search.Searcher(max_depth, time_limit).search(gs, list(legal_moves))
         move = result.move.coordinate_notation() if result.move else "None"
         results.append(
             {
                 "name": name,
                 "fen": fen,
-                "depth": depth,
+                "max_depth": max_depth,
+                "time_limit_s": time_limit,
+                "depth": result.depth,
                 "legal_moves": len(legal_moves),
-                "time_s": elapsed,
-                "nodes": nodes,
-                "nps": per_second(nodes, elapsed),
+                "time_s": result.elapsed,
+                "nodes": result.nodes,
+                "nps": result.nodes_per_second,
+                "cutoffs": result.cutoffs,
+                "timed_out": result.timed_out,
                 "move": move,
             }
         )
         print(
-            f"{name:<42} {elapsed:>7.2f}s {nodes:>10,} "
-            f"{per_second(nodes, elapsed):>10,} {move:>8}"
+            f"{name:<42} {result.elapsed:>6.2f}s {result.depth:>5} "
+            f"{result.nodes:>8,} {result.nodes_per_second:>7,} "
+            f"{result.cutoffs:>7,} {move:>6}"
         )
 
     total_nodes = sum(r["nodes"] for r in results)
     total_time = sum(r["time_s"] for r in results)
-    print("-" * 82)
+    print("-" * 88)
     print(
-        f"{'Total':<42} {total_time:>7.2f}s {total_nodes:>10,} "
-        f"{per_second(total_nodes, total_time):>10,}"
+        f"{'Total':<42} {total_time:>6.2f}s {'':>5} {total_nodes:>8,} "
+        f"{per_second(total_nodes, total_time):>7,}"
     )
     print()
     return results
@@ -165,6 +173,13 @@ def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__.split("\n\n")[0].strip())
     parser.add_argument(
         "--perft-only", action="store_true", help="skip the (slower) search part"
+    )
+    parser.add_argument(
+        "--time-limit",
+        type=float,
+        default=1.0,
+        metavar="SECONDS",
+        help="time per position for the time-limited search (0 to skip it)",
     )
     parser.add_argument("--json", metavar="PATH", help="also write results as JSON")
     args = parser.parse_args(argv)
@@ -186,7 +201,9 @@ def main(argv=None):
 
     report = {"environment": environment, "perft": run_perft()}
     if not args.perft_only:
-        report["search"] = run_search()
+        report["search"] = run_search(max_depth=search.MAX_DEPTH)
+        if args.time_limit > 0:
+            report["timed_search"] = run_search(time_limit=args.time_limit)
 
     if args.json:
         with open(args.json, "w") as f:
