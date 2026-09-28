@@ -1,4 +1,4 @@
-"""Tests for Move's coordinate notation (getChessNotation) and the short
+"""Tests for Move's coordinate notation (coordinate_notation) and the short
 notation shown in the GUI move log (str(move))."""
 
 import pytest
@@ -18,12 +18,12 @@ STARTPOS = "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq -"
 )
 def test_notation_on_ranks_1_to_7(fen, coordinates, short, load_fen, legal_move):
     move = legal_move(load_fen(fen), coordinates)
-    assert move.getChessNotation() == coordinates
+    assert move.coordinate_notation() == coordinates
     assert str(move) == short
 
 
 @pytest.mark.xfail(
-    reason="Move.ranksToRows maps '0' instead of '8' to row 0 -- "
+    reason="Move.RANKS_TO_ROWS maps '0' instead of '8' to row 0 -- "
     "docs/improvement-plan finding R2, fixed in Phase 3",
     raises=AssertionError,
     strict=True,
@@ -38,5 +38,5 @@ def test_notation_on_ranks_1_to_7(fen, coordinates, short, load_fen, legal_move)
 )
 def test_notation_on_rank_8(fen, coordinates, short, load_fen, legal_move):
     move = legal_move(load_fen(fen), coordinates)
-    assert move.getChessNotation() == coordinates
+    assert move.coordinate_notation() == coordinates
     assert str(move) == short

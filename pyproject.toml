@@ -16,11 +16,6 @@ target-version = "py310"
 line-length = 88
 
 [tool.ruff.lint]
-select = ["E4", "E7", "E9", "F"]
-
-[tool.ruff.lint.per-file-ignores]
-# Existing issues in the legacy modules. They are removed in Phase 2 of
-# docs/improvement-plan (wildcard imports, sys.path hacks, unused code), at
-# which point these ignores must be deleted.
-"chess_ai/gui.py" = ["F401", "F403", "F405"]
-"chess_ai/search.py" = ["F401", "F841"]
+# E/F: pycodestyle errors and pyflakes; I: import order; N: PEP 8 naming, which
+# keeps the snake_case / UPPER_CASE / CapWords conventions from drifting.
+select = ["E4", "E7", "E9", "F", "I", "N"]

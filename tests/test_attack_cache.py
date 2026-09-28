@@ -1,4 +1,4 @@
-"""Regression tests for SmartMoveFinder.get_all_attacks() and its cache.
+"""Regression tests for evaluation.get_all_attacks() and its cache.
 
 Two bugs were fixed in commit cad80b8:
 
@@ -17,7 +17,7 @@ restored afterwards.
 
 import pytest
 
-from chess_ai import search as SmartMoveFinder
+from chess_ai import evaluation
 
 
 def fresh_attacks(gs, white):
@@ -25,7 +25,7 @@ def fresh_attacks(gs, white):
     cache on `gs` untouched."""
     saved = gs.__dict__.pop("_attack_cache", None)
     try:
-        return SmartMoveFinder.get_all_attacks(gs, white)
+        return evaluation.get_all_attacks(gs, white)
     finally:
         if saved is None:
             gs.__dict__.pop("_attack_cache", None)
@@ -38,16 +38,16 @@ def test_cached_attacks_follow_the_position_as_moves_are_made(load_fen, legal_mo
     the cached answer must always match a fresh computation."""
     gs = load_fen("rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq -")
 
-    start_white = SmartMoveFinder.get_all_attacks(gs, True)
+    start_white = evaluation.get_all_attacks(gs, True)
     for coordinates in ("e2e4", "e7e5", "g1f3", "b8c6", "f1c4"):
-        gs.makeMove(legal_move(gs, coordinates))
+        gs.make_move(legal_move(gs, coordinates))
         for white in (True, False):
-            cached = SmartMoveFinder.get_all_attacks(gs, white)
+            cached = evaluation.get_all_attacks(gs, white)
             assert cached == fresh_attacks(gs, white), (
                 f"stale cached attacks after {coordinates} (white={white})"
             )
 
-    assert SmartMoveFinder.get_all_attacks(gs, True) != start_white
+    assert evaluation.get_all_attacks(gs, True) != start_white
 
 
 def test_en_passant_square_is_part_of_the_cache_key(load_fen):
@@ -56,10 +56,10 @@ def test_en_passant_square_is_part_of_the_cache_key(load_fen):
     gs = load_fen("4k3/8/8/3pP3/8/8/8/4K3 w - d6")
     d6 = (2, 3)
 
-    assert d6 in SmartMoveFinder.get_all_attacks(gs, True)
+    assert d6 in evaluation.get_all_attacks(gs, True)
 
-    gs.enpassantPossible = ()
-    assert d6 not in SmartMoveFinder.get_all_attacks(gs, True)
+    gs.en_passant_square = ()
+    assert d6 not in evaluation.get_all_attacks(gs, True)
 
 
 def test_off_turn_query_does_not_invent_en_passant_captures(load_fen, state_snapshot):
@@ -69,7 +69,7 @@ def test_off_turn_query_does_not_invent_en_passant_captures(load_fen, state_snap
     gs = load_fen("4k3/8/8/8/3P4/8/2P1P3/4K3 b - d3")
     before = state_snapshot(gs)
 
-    white_attacks = SmartMoveFinder.get_all_attacks(gs, True)
+    white_attacks = evaluation.get_all_attacks(gs, True)
 
     assert state_snapshot(gs) == before
     assert (5, 3) not in white_attacks  # d3
@@ -78,14 +78,14 @@ def test_off_turn_query_does_not_invent_en_passant_captures(load_fen, state_snap
 def test_off_turn_query_preserves_side_to_move_and_en_passant(load_fen):
     gs = load_fen("4k3/8/8/3pP3/8/8/8/4K3 w - d6")
 
-    SmartMoveFinder.get_all_attacks(gs, False)
+    evaluation.get_all_attacks(gs, False)
 
-    assert gs.whiteToMove is True
-    assert gs.enpassantPossible == (2, 3)
+    assert gs.white_to_move is True
+    assert gs.en_passant_square == (2, 3)
 
 
 @pytest.mark.xfail(
-    reason="get_all_attacks() calls getValidMoves() for the side not on move, "
+    reason="get_all_attacks() calls get_legal_moves() for the side not on move, "
     "which overwrites gs.checkmate/gs.stalemate -- docs/improvement-plan "
     "finding R5, fixed in Phase 3",
     raises=AssertionError,
@@ -96,9 +96,9 @@ def test_off_turn_query_leaves_game_over_flags_alone(load_fen):
     Black's turn, but asking for Black's attacks must not mark the current
     position as stalemate."""
     gs = load_fen("7k/5Q2/6K1/8/8/8/8/8 w - -")
-    gs.getValidMoves()
+    gs.get_legal_moves()
     assert (gs.checkmate, gs.stalemate) == (False, False)
 
-    SmartMoveFinder.get_all_attacks(gs, False)
+    evaluation.get_all_attacks(gs, False)
 
     assert (gs.checkmate, gs.stalemate) == (False, False)

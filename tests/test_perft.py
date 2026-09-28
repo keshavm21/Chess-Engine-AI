@@ -1,15 +1,15 @@
 """
-Perft (PERFormance Test) suite for chessEngine.py's move generation.
+Perft (PERFormance Test) suite for the move generation in chess_ai/engine.py.
 
 perft(depth) counts the total number of legal move sequences (leaf nodes)
 reachable in exactly `depth` half-moves from a given position. It is the
 standard way to validate a chess move generator: the correct counts for
 many positions are published and well known, so a mismatch pinpoints a
 real bug in move generation, check detection, castling, en passant, or
-the makeMove/undoMove pair -- not a matter of opinion or tuning.
+the make_move/undo_move pair -- not a matter of opinion or tuning.
 
 This suite also folds in a state-corruption check: after every
-makeMove()/undoMove() pair explored during the count, it checks that the
+make_move()/undo_move() pair explored during the count, it checks that the
 GameState is identical to what it was before the move was made (board
 contents, side to move, castling rights, en-passant square, king
 locations, move-log length). A wrong final count tells you *that*
@@ -24,7 +24,7 @@ Positions used
 - A small custom position (4k3/8/8/8/8/8/5n2/4K2R b K -) where a lone
   black knight can capture White's only rook in one move. The castling
   generator only checks castling rights and empty squares -- it never
-  checks that a rook is still on the corner -- so updateCastlRights()
+  checks that a rook is still on the corner -- so _update_castling_rights()
   revoking rights the instant a rook is captured is load-bearing. The
   other positions never capture a rook within a few plies, so this one
   covers it. Its expected counts were computed independently with the
@@ -34,7 +34,7 @@ Positions used
   en passant with discovered checks along the rank; positions 4 and 5
   contain promotions.
 
-Promotions: makeMove() always auto-queens and the engine never generates
+Promotions: make_move() always auto-queens and the engine never generates
 underpromotion moves, so any position/depth where promotions occur cannot
 match the published counts. Those cases are marked as strict expected
 failures (xfail). When underpromotion is implemented they will start
@@ -93,26 +93,26 @@ PERFT_CASES = [
 
 def perft(gs, depth, snapshot):
     """Count leaf nodes at `depth` half-moves, checking along the way that
-    every undoMove() exactly restores the state that existed before its
-    matching makeMove() -- catching state corruption, not just a wrong
+    every undo_move() exactly restores the state that existed before its
+    matching make_move() -- catching state corruption, not just a wrong
     final count."""
     if depth == 0:
         return 1
 
-    moves = gs.getValidMoves()
+    moves = gs.get_legal_moves()
     if depth == 1:
         return len(moves)
 
     nodes = 0
     for move in moves:
         before = snapshot(gs)
-        gs.makeMove(move)
+        gs.make_move(move)
         nodes += perft(gs, depth - 1, snapshot)
-        gs.undoMove()
+        gs.undo_move()
         if snapshot(gs) != before:
             pytest.fail(
-                f"undoMove() did not fully restore state after "
-                f"{move.getChessNotation()} (depth {depth})"
+                f"undo_move() did not fully restore state after "
+                f"{move.coordinate_notation()} (depth {depth})"
             )
     return nodes
 

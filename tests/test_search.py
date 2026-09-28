@@ -1,24 +1,24 @@
-"""Regression tests for findBestMoveMinMax() / findMoveMinMaxAlphaBeta()."""
+"""Regression tests for find_best_move() / minimax_alpha_beta()."""
 
 import time
 
 import pytest
 
-from chess_ai import engine as chessEngine
-from chess_ai import search as SmartMoveFinder
+from chess_ai import evaluation, search
+from chess_ai.engine import GameState
 
 
 def best_move(gs):
-    return SmartMoveFinder.findBestMoveMinMax(gs, list(gs.getValidMoves()))
+    return search.find_best_move(gs, list(gs.get_legal_moves()))
 
 
 def delivers_checkmate(gs, move):
     """True if playing `move` checkmates the opponent. Leaves `gs` unchanged."""
-    gs.makeMove(move)
-    gs.getValidMoves()  # sets gs.checkmate / gs.stalemate
+    gs.make_move(move)
+    gs.get_legal_moves()  # sets gs.checkmate / gs.stalemate
     mated = gs.checkmate
-    gs.undoMove()
-    gs.getValidMoves()
+    gs.undo_move()
+    gs.get_legal_moves()
     return mated
 
 
@@ -28,7 +28,7 @@ def test_three_legal_moves_finds_the_free_queen_capture(load_fen):
     Black is in check from the White queen on h5 (it checks along the
     h5-e8 diagonal). Black has exactly three legal replies: Ke7, g6, or
     Nxh5 -- and Nxh5 both captures the checking queen outright *and*
-    resolves the check in the same move. validMoves[0] (board-scan
+    resolves the check in the same move. legal_moves[0] (board-scan
     order) is Ke7, a mere retreat that leaves the queen on the board.
     This holds regardless of whether the attack-cache fix has also been
     applied (verified against all four fix combinations), unlike an
@@ -36,20 +36,20 @@ def test_three_legal_moves_finds_the_free_queen_capture(load_fen):
     """
     gs = load_fen("r1bqkbr1/pp1p2pp/n3pp2/2p4Q/7P/3PP1n1/PPP2PP1/RNB1KBNR b Q -")
 
-    moves = gs.getValidMoves()
+    moves = gs.get_legal_moves()
     assert len(moves) == 3, f"expected exactly 3 legal moves, got {len(moves)}"
-    assert moves[0].getChessNotation() == "e0e7", (
-        "this test assumes validMoves[0] is the king retreat (Ke7); if "
+    assert moves[0].coordinate_notation() == "e0e7", (
+        "this test assumes legal_moves[0] is the king retreat (Ke7); if "
         "move-generation order changed, re-verify which index the "
         "shortcut would actually return."
     )
 
-    chosen = SmartMoveFinder.findBestMoveMinMax(gs, list(moves))
+    chosen = search.find_best_move(gs, list(moves))
 
-    assert chosen.pieceMoved == "bN" and chosen.endRow == 3 and chosen.endCol == 7, (
+    assert chosen.piece_moved == "bN" and chosen.end_row == 3 and chosen.end_col == 7, (
         f"expected the knight to capture the checking queen on h5 "
-        f"(Nxh5), but the engine chose {chosen.pieceMoved} to "
-        f"{chr(ord('a') + chosen.endCol)}{8 - chosen.endRow} -- a <=3-style "
+        f"(Nxh5), but the engine chose {chosen.piece_moved} to "
+        f"{chr(ord('a') + chosen.end_col)}{8 - chosen.end_row} -- a <=3-style "
         f"shortcut (or an equivalent regression) is picking a move "
         f"without evaluating it."
     )
@@ -61,11 +61,11 @@ def test_single_legal_move_is_still_immediate(load_fen):
     original shortcut was sound and should be kept."""
     gs = load_fen("7k/8/6K1/8/8/8/8/6R1 b - -")
 
-    moves = gs.getValidMoves()
+    moves = gs.get_legal_moves()
     assert len(moves) == 1, f"expected exactly 1 legal move, got {len(moves)}"
 
     t0 = time.time()
-    chosen = SmartMoveFinder.findBestMoveMinMax(gs, list(moves))
+    chosen = search.find_best_move(gs, list(moves))
     elapsed = time.time() - t0
 
     assert chosen is moves[0]
@@ -80,20 +80,20 @@ def test_mate_distance_scoring_prefers_faster_mate():
     fewer actual moves) must score more extremely than one found with
     less depth remaining, so the search can tell them apart instead of
     treating every mate as identical."""
-    gs = chessEngine.GameState()
+    gs = GameState()
     gs.checkmate = True
 
-    gs.whiteToMove = False  # White has just delivered mate to Black
-    fast_mate = SmartMoveFinder.scoreBoard(gs, depth=2)
-    slow_mate = SmartMoveFinder.scoreBoard(gs, depth=0)
+    gs.white_to_move = False  # White has just delivered mate to Black
+    fast_mate = evaluation.evaluate(gs, depth=2)
+    slow_mate = evaluation.evaluate(gs, depth=0)
     assert fast_mate > slow_mate > 0, (
         f"expected a faster mate to score higher than a slower one "
         f"(got fast={fast_mate}, slow={slow_mate})"
     )
 
-    gs.whiteToMove = True  # Black has just delivered mate to White
-    fast_loss = SmartMoveFinder.scoreBoard(gs, depth=2)
-    slow_loss = SmartMoveFinder.scoreBoard(gs, depth=0)
+    gs.white_to_move = True  # Black has just delivered mate to White
+    fast_loss = evaluation.evaluate(gs, depth=2)
+    slow_loss = evaluation.evaluate(gs, depth=0)
     assert fast_loss < slow_loss < 0, (
         f"expected getting mated faster to score lower (worse) than "
         f"getting mated slower (got fast={fast_loss}, slow={slow_loss})"
@@ -125,5 +125,5 @@ def test_prefers_mate_in_one_over_slower_mate(fen, load_fen):
     gs = load_fen(fen)
     chosen = best_move(gs)
     assert delivers_checkmate(gs, chosen), (
-        f"a mate in one is available but the engine chose {chosen.getChessNotation()}"
+        f"a mate in one is available but the engine chose {chosen.coordinate_notation()}"
     )
