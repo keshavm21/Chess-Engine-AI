@@ -107,21 +107,22 @@ def test_finds_back_rank_mate_in_one(load_fen):
     assert delivers_checkmate(gs, best_move(gs))
 
 
-@pytest.mark.xfail(
-    reason="root search window is [-CHECKMATE, CHECKMATE] but mate scores are "
-    ">= CHECKMATE, so a slower mate searched first causes a cutoff before the "
-    "mate-in-one is examined -- docs/improvement-plan finding S1, fixed in Phase 3",
-    raises=AssertionError,
-    strict=True,
-)
 @pytest.mark.parametrize(
     "fen",
     [
         pytest.param("3k4/5R2/8/2K5/4Q3/8/8/8 w - -", id="Qa8#-not-Qd5+"),
         pytest.param("8/8/1R2Q3/8/8/8/8/k1K5 w - -", id="Ra6#-not-Qe5+"),
+        # The same two positions with colours swapped: Black to move and mate.
+        pytest.param("8/8/8/4q3/2k5/8/5r2/3K4 b - -", id="black-Qa1#-not-Qd4+"),
+        pytest.param("K1k5/8/8/8/8/1r2q3/8/8 b - -", id="black-Rb8#-not-Qe4+"),
     ],
 )
 def test_prefers_mate_in_one_over_slower_mate(fen, load_fen):
+    """Regression test for finding S1: the root search window used to be
+    [-CHECKMATE, CHECKMATE] while mate scores are >= CHECKMATE, so a slower
+    mate searched first caused a cutoff before the mate in one was examined.
+    In each position a checking move that mates in two is ordered before the
+    mate in one."""
     gs = load_fen(fen)
     chosen = best_move(gs)
     assert delivers_checkmate(gs, chosen), (

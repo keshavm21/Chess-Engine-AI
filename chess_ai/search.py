@@ -5,7 +5,6 @@ import random
 import traceback
 
 from chess_ai.evaluation import (
-    CHECKMATE,
     PIECE_VALUES,
     clear_attack_cache,
     evaluate,
@@ -91,8 +90,12 @@ def find_best_move(gs, legal_moves, return_queue=None):
         if len(legal_moves) == 1:
             result = legal_moves[0]
         else:
+            # The root window must be unbounded: mate scores are
+            # CHECKMATE + depth, i.e. >= CHECKMATE, so a [-CHECKMATE, CHECKMATE]
+            # window made the first mate found (even a slow one) cause a cutoff
+            # before a faster mate further down the move list was examined.
             _ = minimax_alpha_beta(
-                gs, legal_moves, MAX_DEPTH, -CHECKMATE, CHECKMATE, gs.white_to_move
+                gs, legal_moves, MAX_DEPTH, -math.inf, math.inf, gs.white_to_move
             )
             result = next_move if next_move else legal_moves[0]
     except Exception:
