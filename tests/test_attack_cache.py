@@ -1,4 +1,8 @@
-"""Regression tests for evaluation.get_all_attacks() and its cache.
+"""Regression tests for legacy_evaluation.get_all_attacks() and its cache.
+
+The attack cache belongs to the pre-Phase-6 evaluation, which is kept only
+until the new evaluation has been shown to play better; these tests are
+removed together with it.
 
 Two bugs were fixed in commit cad80b8:
 
@@ -15,7 +19,7 @@ fix itself: the en-passant square it temporarily suppresses must be
 restored afterwards.
 """
 
-from chess_ai import evaluation
+from chess_ai import legacy_evaluation as evaluation
 
 
 def fresh_attacks(gs, white):

@@ -50,10 +50,11 @@ def test_update_game_status_clears_stale_flags(load_fen):
 @pytest.mark.parametrize("depth", [0, 2])
 def test_search_scores_checkmate_from_empty_move_list(depth, load_fen):
     """The search decides terminal positions from the (empty) legal move list,
-    without the flags; Black is mated here, so the score is +(CHECKMATE + depth)."""
+    without the flags. Black is mated at the root (0 plies away), so the score
+    is +CHECKMATE whatever the search depth."""
     gs = load_fen(CHECKMATED)
     _, score = search.Searcher().search_depth(gs, [], depth)
-    assert score == CHECKMATE + depth
+    assert score == CHECKMATE
 
 
 def test_search_scores_stalemate_from_empty_move_list(load_fen):

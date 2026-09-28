@@ -10,19 +10,17 @@ import time
 import traceback
 from dataclasses import dataclass
 
-from chess_ai.evaluation import (
-    CHECKMATE,
-    PIECE_VALUES,
-    STALEMATE,
-    clear_attack_cache,
-    evaluate,
-    is_opening_phase,
-    mate_score,
-)
+from chess_ai.evaluation import CHECKMATE, STALEMATE, evaluate
 
 MAX_DEPTH = 3  # default search depth in plies: raise for strength, lower for speed
 # Safety cap on the depth of a time-limited search.
 MAX_SEARCH_DEPTH = 30
+# A side that is mated `ply` plies from the root scores -(CHECKMATE - ply), so
+# faster mates score higher. Scores beyond this threshold mean a forced mate.
+MATE_THRESHOLD = CHECKMATE - 1000
+
+# Piece values for move ordering (in pawns).
+ORDER_VALUES = {"K": 0, "Q": 10, "R": 5, "B": 3, "N": 3, "p": 1}
 
 
 @dataclass(frozen=True)
@@ -50,8 +48,8 @@ def get_move_priority(move, gs, is_white):
 
     # Captures get highest priority
     if move.piece_captured != "--":
-        captured_value = PIECE_VALUES.get(move.piece_captured[1], 0)
-        attacker_value = PIECE_VALUES.get(move.piece_moved[1], 0)
+        captured_value = ORDER_VALUES[move.piece_captured[1]]
+        attacker_value = ORDER_VALUES[move.piece_moved[1]]
         priority += 1000 + (captured_value * 10 - attacker_value)
 
     # Queen promotions are very good; underpromotions are rarely best, so
@@ -66,7 +64,7 @@ def get_move_priority(move, gs, is_white):
     gs.undo_move()
 
     # Developing moves in opening
-    if is_opening_phase(gs):
+    if _is_opening_phase(gs):
         # Knight development
         if move.piece_moved[1] == "N" and move.start_row in [0, 7]:
             priority += 200
@@ -86,6 +84,11 @@ def get_move_priority(move, gs, is_white):
     return priority
 
 
+def _is_opening_phase(gs):
+    """More than 28 pieces (including pawns) are still on the board."""
+    return sum(sq != "--" for row in gs.board for sq in row) > 28
+
+
 # ---------- Search ----------
 def find_random_move(legal_moves):
     """Return a random legal move (the GUI's fallback if the search fails)."""
@@ -97,7 +100,7 @@ class SearchResult:
     """What a search found, plus statistics about it."""
 
     move: object  # the chosen Move; None only if there are no legal moves
-    score: float | None  # from White's point of view; None if nothing was searched
+    score: int | None  # centipawns, White's point of view; None if nothing was searched
     depth: int  # deepest completed search in plies (0 if nothing was searched)
     nodes: int  # positions visited, including any search cut short by the clock
     cutoffs: int  # alpha-beta cutoffs
@@ -122,11 +125,13 @@ class Searcher:
     cannot interfere with each other.
     """
 
-    def __init__(self, max_depth=None, time_limit=None):
+    def __init__(self, max_depth=None, time_limit=None, evaluator=None):
         if max_depth is None:
             max_depth = MAX_DEPTH if time_limit is None else MAX_SEARCH_DEPTH
         self.max_depth = max_depth
         self.time_limit = time_limit
+        # Static evaluation in centipawns from White's point of view.
+        self.evaluate = evaluator if evaluator is not None else evaluate
         self.nodes = 0
         self.cutoffs = 0
         self._deadline = None  # perf_counter() value at which to stop, if any
@@ -139,7 +144,6 @@ class Searcher:
         if legal_moves is None:
             legal_moves = gs.get_legal_moves()
         self.nodes = self.cutoffs = 0
-        clear_attack_cache(gs)  # start every search with an empty attack cache
 
         # No move, or a single legal move: nothing to decide. Two or three
         # legal moves are a real decision (often the only replies to a
@@ -168,7 +172,7 @@ class Searcher:
                 self._deadline = None
             best_move, best_score, completed_depth = move, score, depth
 
-            if abs(score) >= CHECKMATE:
+            if abs(score) >= MATE_THRESHOLD:
                 break  # a forced mate was found; searching deeper cannot change it
             if self.time_limit is not None:
                 # Each depth takes several times longer than all previous ones
@@ -198,10 +202,9 @@ class Searcher:
         self._first_root_move = first_move
         self._best_root_move = None
         color = 1 if gs.white_to_move else -1
-        # The root window must be unbounded: mate scores are
-        # CHECKMATE + depth, i.e. >= CHECKMATE, so a [-CHECKMATE, CHECKMATE]
-        # window made the first mate found (even a slow one) cause a cutoff
-        # before a faster mate further down the move list was examined.
+        # The root window must be unbounded: with a window that mate scores
+        # could reach, the first mate found (even a slow one) caused a cutoff
+        # before a faster mate further down the move list was examined (S1).
         score = self._negamax(gs, legal_moves, depth, -math.inf, math.inf, color, 0)
         return self._best_root_move, color * score
 
@@ -221,9 +224,9 @@ class Searcher:
         # No legal moves: checkmate or stalemate (decided here, not via flags
         # set as a side effect of move generation).
         if not legal_moves:
-            return color * (mate_score(gs, depth) if gs.in_check() else STALEMATE)
+            return -(CHECKMATE - ply) if gs.in_check() else STALEMATE
         if depth == 0:
-            return color * evaluate(gs, depth)
+            return color * self.evaluate(gs)
 
         # Sort moves at the top two plies for better pruning
         if ply <= 1:

@@ -4,8 +4,8 @@ import time
 
 import pytest
 
-from chess_ai import evaluation, search
-from chess_ai.engine import GameState
+from chess_ai import search
+from chess_ai.evaluation import CHECKMATE
 
 
 def best_move(gs):
@@ -74,29 +74,21 @@ def test_single_legal_move_is_still_immediate(load_fen):
     )
 
 
-def test_mate_distance_scoring_prefers_faster_mate():
-    """A mate found with more search depth remaining (i.e. reached in
-    fewer actual moves) must score more extremely than one found with
-    less depth remaining, so the search can tell them apart instead of
-    treating every mate as identical."""
-    gs = GameState()
-    gs.checkmate = True
-
-    gs.white_to_move = False  # White has just delivered mate to Black
-    fast_mate = evaluation.evaluate(gs, depth=2)
-    slow_mate = evaluation.evaluate(gs, depth=0)
-    assert fast_mate > slow_mate > 0, (
-        f"expected a faster mate to score higher than a slower one "
-        f"(got fast={fast_mate}, slow={slow_mate})"
-    )
-
-    gs.white_to_move = True  # Black has just delivered mate to White
-    fast_loss = evaluation.evaluate(gs, depth=2)
-    slow_loss = evaluation.evaluate(gs, depth=0)
-    assert fast_loss < slow_loss < 0, (
-        f"expected getting mated faster to score lower (worse) than "
-        f"getting mated slower (got fast={fast_loss}, slow={slow_loss})"
-    )
+@pytest.mark.parametrize(
+    ("fen", "expected"),
+    [
+        pytest.param("6k1/5ppp/8/8/8/8/8/R5K1 w - -", CHECKMATE - 1, id="mate-in-1"),
+        pytest.param("7k/8/5K2/8/8/8/8/6R1 w - -", CHECKMATE - 3, id="mate-in-2"),
+        pytest.param("r5k1/8/8/8/8/8/5PPP/6K1 b - -", -(CHECKMATE - 1), id="black-1"),
+    ],
+)
+def test_mate_scores_count_the_plies_to_mate(fen, expected, load_fen):
+    """A mate delivered `n` plies from the root scores CHECKMATE - n (from
+    White's point of view, negative when Black mates), so faster mates always
+    score higher and every mate has the same score at every search depth."""
+    gs = load_fen(fen)
+    _, score = search.Searcher().search_depth(gs, gs.get_legal_moves(), 3)
+    assert score == expected
 
 
 def test_finds_back_rank_mate_in_one(load_fen):
