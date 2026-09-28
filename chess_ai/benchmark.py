@@ -12,77 +12,14 @@ This provides a reproducible baseline before any search improvements
 (move ordering, iterative deepening, quiescence search, etc.) are made.
 
 Run with:
-    python3 benchmark.py
+    python -m chess_ai.benchmark
 """
 
-import os
 import sys
 import time
 
-# Make sure the repo root is importable.
-REPO_ROOT = os.path.dirname(os.path.abspath(__file__))
-if REPO_ROOT not in sys.path:
-    sys.path.insert(0, REPO_ROOT)
-
-import chessEngine
-import SmartMoveFinder
-
-
-# ---------------------------------------------------------------------------
-# FEN loader (same pattern used by the test suite)
-# ---------------------------------------------------------------------------
-
-def set_position_from_fen(gs, fen):
-    """Configure an existing GameState to match a FEN position."""
-    placement, side, castling, ep = fen.split()[:4]
-
-    piece_map = {
-        "p": "bp", "n": "bN", "b": "bB", "r": "bR", "q": "bQ", "k": "bK",
-        "P": "wp", "N": "wN", "B": "wB", "R": "wR", "Q": "wQ", "K": "wK",
-    }
-
-    board = []
-    for row in placement.split("/"):
-        board_row = []
-        for ch in row:
-            if ch.isdigit():
-                board_row.extend(["--"] * int(ch))
-            else:
-                board_row.append(piece_map[ch])
-        board.append(board_row)
-    gs.board = board
-
-    gs.whiteToMove = (side == "w")
-
-    gs.currentCastlingRights = chessEngine.CastleRights(
-        "K" in castling, "k" in castling, "Q" in castling, "q" in castling,
-    )
-    gs.castleRightLog = [chessEngine.CastleRights(
-        gs.currentCastlingRights.wks, gs.currentCastlingRights.bks,
-        gs.currentCastlingRights.wqs, gs.currentCastlingRights.bqs,
-    )]
-
-    if ep == "-":
-        gs.enpassantPossible = ()
-    else:
-        col = chessEngine.Move.fileToCols[ep[0]]
-        row = chessEngine.Move.ranksToRows[ep[1]]
-        gs.enpassantPossible = (row, col)
-    gs.enpassantPossibleLog = [gs.enpassantPossible]
-
-    gs.moveLog = []
-
-    for r in range(8):
-        for c in range(8):
-            if gs.board[r][c] == "wK":
-                gs.whiteKingLocation = (r, c)
-            elif gs.board[r][c] == "bK":
-                gs.blackKingLocation = (r, c)
-
-    gs.checkmate = False
-    gs.stalemate = False
-    return gs
-
+from chess_ai import search
+from chess_ai.engine import GameState
 
 # ---------------------------------------------------------------------------
 # Benchmark positions
@@ -112,8 +49,9 @@ POSITIONS = [
 # Run benchmark
 # ---------------------------------------------------------------------------
 
+
 def run_benchmark():
-    depth = SmartMoveFinder.MAX_DEPTH
+    depth = search.MAX_DEPTH
 
     print("=" * 72)
     print("CHESS ENGINE AI — BASELINE SEARCH BENCHMARK")
@@ -130,17 +68,16 @@ def run_benchmark():
     results = []
 
     for pos in POSITIONS:
-        gs = chessEngine.GameState()
-        set_position_from_fen(gs, pos["fen"])
-        valid_moves = gs.getValidMoves()
+        gs = GameState.from_fen(pos["fen"])
+        legal_moves = gs.get_legal_moves()
 
         t0 = time.time()
-        chosen = SmartMoveFinder.findBestMoveMinMax(gs, list(valid_moves))
+        chosen = search.find_best_move(gs, list(legal_moves))
         elapsed = time.time() - t0
 
-        nodes = SmartMoveFinder.nodesExplored
+        nodes = search.nodes_explored
         nps = int(nodes / elapsed) if elapsed > 0 else 0
-        move_str = chosen.getChessNotation() if chosen else "None"
+        move_str = chosen.coordinate_notation() if chosen else "None"
 
         result = {
             "name": pos["name"],
@@ -150,7 +87,7 @@ def run_benchmark():
             "nodes": nodes,
             "nps": nps,
             "move": move_str,
-            "legal_moves": len(valid_moves),
+            "legal_moves": len(legal_moves),
         }
         results.append(result)
 

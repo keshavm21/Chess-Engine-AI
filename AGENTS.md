@@ -9,11 +9,13 @@ performance, architecture, testing, and repository quality.
 
 Do not rewrite the project from scratch.
 
-The development roadmap is stored outside the repository as:
+The detailed, phased improvement plan is in `docs/improvement-plan/`
+(current state, proposed changes, implementation phases and their status).
+The high-level roadmap is stored outside the repository as:
 `../chess_engine_repository_improvement_roadmap.txt`
 
-Treat that roadmap as the high-level development plan, but always inspect
-the actual repository before deciding what remains to be done.
+Treat these as the development plan, but always inspect the actual
+repository before deciding what remains to be done.
 
 
 ## General Development Rules
@@ -80,23 +82,28 @@ When changing evaluation:
 
 Maintain the separation of responsibilities:
 
-- `chessMain.py`
+- `chess_ai/gui.py`
   - GUI
   - rendering
   - user interaction
   - game interaction
 
-- `chessEngine.py`
+- `chess_ai/engine.py`
   - board state
   - chess rules
   - move generation
   - make/undo
   - game state
+  - FEN parsing/writing
 
-- `SmartMoveFinder.py`
+- `chess_ai/search.py`
   - search
-  - evaluation
+  - move ordering
   - search-related caching/data structures
+
+- `chess_ai/evaluation.py`
+  - static evaluation
+  - evaluation-related caching
 
 Do not mix GUI responsibilities into the chess engine or search code
 without a strong reason.
@@ -142,13 +149,13 @@ For search changes, consider measuring:
 
 Do not rename files unless the task explicitly calls for naming cleanup.
 
-The project currently contains names such as:
+The code follows PEP 8 naming (standardized in Phase 2 of the plan):
 
-- `chessMain.py`
-- `chessEngine.py`
-- `SmartMoveFinder.py`
+- modules and functions: `snake_case`
+- constants: `UPPER_CASE`
+- classes: `CapWords`
 
-A later cleanup may standardize these to Python naming conventions.
+`ruff` enforces these rules (the `N` rule set) in CI; keep new code consistent.
 
 When renaming files:
 
