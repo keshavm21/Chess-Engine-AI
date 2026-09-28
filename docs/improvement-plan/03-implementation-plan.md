@@ -87,19 +87,17 @@ docs: record baseline benchmarks and update guides for pytest
 
 **Verification:** perft identical. `python -m chess_ai.benchmark` shows **identical nodes and moves** for all 4 positions. `git show -M --stat` lists renames, not delete + add. GUI smoke test passes.
 
+**Outcome (2026-09-28):** 47 passed (the original 28 plus 19 new FEN tests), and the same 10 strict xfails. The benchmark on Python 3.12 gives identical nodes (1 018 / 2 015 / 2 742 / 3 989) and moves (b1c3 / g0f6 / e1c1 / e2a6) before and after the refactor. Git records the moves as renames at 95–100 % similarity. The GUI was driven headlessly through `python -m chess_ai`: a human move, then an AI reply from the child process, then quit, exit code 0. Deviations from the steps above:
+- Because Claude doesn't commit, the phase is **3 commits instead of 11**. The pure moves are staged in the index so they can be committed alone, which keeps rename detection. The rest is split by file: code, then docs.
+- Assets moved in the first commit (pure renames). `ruff format` ran as part of the code commit, so `.git-blame-ignore-revs` was skipped.
+- Added ruff rule sets `N` (PEP 8 naming) and `I` (import order), plus `ruff format --check` in CI, so the new conventions are enforced.
+- Removed dead code: `evaluation.is_square_attacked` (never called), an unused local in `king_safety`, and a debug `__main__` block.
+
 **Planned commits:**
 ```
-refactor: move modules into chess_ai package
-refactor: split SmartMoveFinder into search and evaluation modules
-refactor: rename engine API to PEP 8 names
-refactor: rename search and evaluation API to PEP 8 names
-refactor: rename GUI functions and variables to PEP 8 names
-refactor: add FEN parsing to the engine and use it in tests and benchmark
-refactor: remove wildcard imports, path hacks and unused code
-chore: reorganise image assets
-style: format codebase with ruff
-docs: fix README setup commands and remove inaccurate claims
-docs: update agent guides for the new package layout
+refactor: move modules and assets into the chess_ai package
+refactor: split search/evaluation, adopt PEP 8 names, add FEN support
+docs: fix README commands and update guides for the chess_ai package
 ```
 
 ---

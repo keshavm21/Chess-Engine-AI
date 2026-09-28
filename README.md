@@ -2,24 +2,27 @@
 
 This is a fully functional **Chess Engine** written in Python using `pygame`. It features a custom AI opponent capable of looking ahead using the **Minimax algorithm** with **Alpha-Beta pruning** and advanced positional evaluation heuristics.
 
-- **Engine:** Handles move generation, validation, castling, en passant, and checkmate/stalemate detection.
-- **AI:** Minimax search (Depth 3) with Alpha-Beta pruning, transposition caching, and opening principles.
+- **Engine:** Handles move generation, validation, castling, en passant, promotion (to a queen), and checkmate/stalemate detection.
+- **AI:** Minimax search (depth 3) with Alpha-Beta pruning, move ordering, an evaluation cache, and opening principles.
 - **UI:** Graphical interface with move logging, valid move highlighting, and a live evaluation bar.
-- **Cross-Platform:** Runs on Windows, macOS, and Linux (Ubuntu).
+- **Platforms:** Developed on macOS; the test suite runs on Linux (Ubuntu) in CI. Windows is untested.
 
 ## Files
-- `ChessMain.py` — The main driver (GUI, event loop, graphics)
-- `ChessEngine.py` — The game state manager (rules, move generation)
-- `SmartMoveFinder.py` — The AI logic (Minimax, heuristics, evaluation)
-- `images/` — Folder containing piece assets (`wp.png`, `bK.png`, etc.)
-- `requirements.txt` — List of dependencies (pygame)
+- `chess_ai/gui.py` — The GUI (pygame event loop, drawing, running the AI)
+- `chess_ai/engine.py` — The game state (board, rules, legal move generation, FEN)
+- `chess_ai/search.py` — The AI search (Minimax with Alpha-Beta pruning, move ordering)
+- `chess_ai/evaluation.py` — Position evaluation (material, piece-square tables, heuristics)
+- `chess_ai/benchmark.py` — Search benchmark
+- `chess_ai/assets/pieces/` — Piece images (`wp.png`, `bK.png`, etc.)
+- `tests/` — Test suite (pytest)
+- `requirements.txt` / `requirements-dev.txt` — Runtime dependencies (pygame) / development tools (pytest, ruff)
 
 ## Installation & Setup
 
-You can run this bot on any system (Windows, Mac, Ubuntu/Linux). It is recommended to use a **virtual environment**.
+It is recommended to use a **virtual environment**.
 
 ### 1. Prerequisite
-Ensure you have **Python 3.8+** installed.
+Ensure you have **Python 3.10 – 3.13** installed (pygame does not provide pre-built packages for 3.14 yet).
 
 ### 2. Create a Virtual Environment
 This isolates the project dependencies from your system.
@@ -45,27 +48,22 @@ Once the virtual environment is active (you should see `(venv)` in your terminal
 pip install -r requirements.txt
 ```
 
-**requirements.txt** should contain:
-```
-pygame>=2.5.0
-```
-
 ## How to Run
 
-To start the game, execute:
+To start the game, run this from the project folder:
 ```bash
-python ChessMain.py
+python -m chess_ai
 ```
 
 A window will open showing the chess board. You play as White (bottom), and the AI plays as Black (top).
 
 ## Controls
 - **Mouse Left Click:** Select a piece / Make a move
-- **Z:** Undo the last move (works for both player and AI)
+- **Z:** Undo the last move (see Known Limitations)
 - **R:** Reset the board to the starting position
 
 ## AI & Heuristics
-The bot (`SmartMoveFinder.py`) uses several advanced techniques to produce strong gameplay.
+The AI (`chess_ai/search.py` and `chess_ai/evaluation.py`) combines the following techniques.
 
 ### Algorithm
 - **Minimax with Alpha-Beta Pruning** — efficient search tree pruning
@@ -86,20 +84,30 @@ The bot (`SmartMoveFinder.py`) uses several advanced techniques to produce stron
 - **Pawn Structure:** penalties for isolated or doubled pawns; bonuses for passed pawns
 
 ## Performance
-- **Depth:** Default search depth is 3 (the AI looks 3 moves ahead)
-- **Optimization:** Transposition table caching previously evaluated board states for faster and smarter decisions
+- **Depth:** Default search depth is 3 half-moves (`MAX_DEPTH` in `chess_ai/search.py`)
+- **Caching:** Evaluations of previously seen board positions are cached during a search
 
 ## Features
-- Full chess rules implementation including special moves (castling, en passant, pawn promotion)
+- Chess rules including special moves (castling, en passant, pawn promotion to a queen)
 - Checkmate and stalemate detection
 - Move validation and legal move generation
 - Visual feedback for valid moves
 - Move history with undo functionality
-- AI opponent with configurable difficulty
+- AI opponent (search depth set by `MAX_DEPTH` in `chess_ai/search.py`)
+
+## Running the Tests
+
+```bash
+pip install -r requirements-dev.txt
+pytest                      # full test suite
+python -m chess_ai.benchmark  # search benchmark (takes a minute or two)
+```
 
 ## Known Limitations
-- No threefold repetition or fifty-move rule detection
-- AI computation time may vary based on system performance
+- Pawns always promote to a queen (no underpromotion)
+- No threefold repetition, fifty-move rule, or insufficient-material draw detection
+- Undo takes back one half-move; against the AI, the AI then moves again, so press **Z** a second time while it is thinking to return to your own move
+- AI computation time depends on the position and the machine (from a couple of seconds to over 20 seconds per move at depth 3 on an Apple M1)
 - Depth beyond 3 may cause noticeable delays on slower systems
 
 ## License

@@ -3,6 +3,8 @@
 A snapshot of the repository as it is today, before the improvement work starts.
 Every finding in this document was checked against the code or by running it. Anything I only inferred from reading the code is labelled *(from reading the code)* or *(not yet verified)*.
 
+> **Note:** this is a snapshot from before Phase 2. File and function names here are the old ones (`chessEngine.py`, `getValidMoves`, …). Phase 2 moved the code into the `chess_ai/` package and renamed identifiers to PEP 8; the bugs listed here are otherwise unchanged until the phase that fixes them.
+
 | | |
 |---|---|
 | Snapshot date | 2026-09-28 |
@@ -162,7 +164,7 @@ The terms are: material + piece-square tables, bishop pair, rooks on open files,
 | G6 | No highlighting of the last move or of a king in check, and no board coordinates. | Code |
 | G7 | You can't choose your side (always White), a difficulty, or a time limit, and there's no board flip. | Code |
 | G8 | No draw detection (R3), so the game never ends in dead-drawn positions. | Code |
-| G9 | Closing the window while the AI is thinking probably keeps the app alive until the search finishes, because the child process isn't a daemon and isn't terminated on quit. | Not yet verified |
+| G9 | ~~Closing the window while the AI is thinking keeps the app alive until the search finishes.~~ **Not reproduced:** checked in Phase 2 by quitting mid-search with a headless GUI driver, and the app exited within 0.3 s. | Checked 2026-09-28 (macOS, Python 3.12) |
 | G10 | Every AI move re-imports `chessMain` in the child process, which prints the pygame banner and "AI thinking…" / "AI done thinking" to the console. | Seen during runs / code |
 
 ---

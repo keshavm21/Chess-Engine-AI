@@ -19,8 +19,8 @@ The plan for turning Chess-Engine-AI into a clean, well-tested portfolio project
 | Phase | Title | Status |
 |---|---|---|
 | 0 | Planning | ✅ Done (pending review) |
-| 1 | Safety net: tests, tooling, CI | 🔶 Implemented, awaiting review and merge |
-| 2 | Structure and naming cleanup | ⬜ Not started |
+| 1 | Safety net: tests, tooling, CI | ✅ Committed on `improve-chess-engine` (not yet merged into `main`) |
+| 2 | Structure and naming cleanup | 🔶 Implemented, awaiting review and merge |
 | 3 | Correctness fixes | ⬜ Not started |
 | 4 | Performance | ⬜ Not started |
 | 5 | Search framework (iterative deepening, time limit) | ⬜ Not started |

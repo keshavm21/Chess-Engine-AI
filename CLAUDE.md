@@ -6,56 +6,56 @@ Project rules (workflow, git, testing, benchmarking, file-naming policy) live in
 
 ## Commands
 
-Supported Python: **3.10–3.13** (CI tests all four; pygame 2.6 has no 3.14 wheels). The local `venv/` is still the macOS system Python 3.9.6 until it's recreated, so keep code 3.9-compatible until then.
+Supported Python: **3.10–3.13** (CI tests all four; pygame 2.6 has no 3.14 wheels). The local `venv/` is Python 3.12. Run everything from the repository root.
 
 ```bash
 source venv/bin/activate              # or prefix commands with ./venv/bin/python
 pip install -r requirements-dev.txt   # runtime (pygame) + dev tools (pytest, ruff)
 
-python chessMain.py                   # launch the GUI (human = White, AI = Black; Z = undo, R = reset)
-python benchmark.py                   # search benchmark on 4 positions (~2 min at depth 3); log results in docs/benchmarks.md
+python -m chess_ai                    # launch the GUI (human = White, AI = Black; Z = undo, R = reset)
+python -m chess_ai.benchmark          # search benchmark on 4 positions (~45 s at depth 3); log results in docs/benchmarks.md
 
-pytest                                # full suite, ~35s (this is what CI runs)
-pytest -m "not slow"                  # skips deep perft, ~6s
+pytest                                # full suite, ~12 s (this is what CI runs)
+pytest -m "not slow"                  # skips deep perft, ~2 s
 pytest tests/test_search.py::test_single_legal_move_is_still_immediate   # a single test
 pytest "tests/test_perft.py::test_perft[kiwipete-d2]"                   # a single parametrized case
-ruff check .                          # lint (CI runs this too)
-ruff format tests                     # tests are format-clean; the app modules get formatted in Phase 2
+ruff check .                          # lint, including PEP 8 naming (N) and import order (I)
+ruff format .                         # formatter; CI runs `ruff format --check .`
 ```
 
-The README says `ChessMain.py` / `ChessEngine.py`, but the real filenames are lowercase `chessMain.py` / `chessEngine.py`. macOS hides the difference; Linux doesn't.
-
 ### Test-suite conventions
-- pytest config lives in `pyproject.toml` (`pythonpath = ["."]`, a `slow` marker, `xfail_strict = true`). Shared helpers are fixtures in `tests/conftest.py`: `load_fen(fen)` → `GameState`, `legal_move(gs, "e2e4")` → `Move`, `state_snapshot(gs)`.
+- pytest config lives in `pyproject.toml` (`pythonpath = ["."]`, a `slow` marker, `xfail_strict = true`). Shared helpers are fixtures in `tests/conftest.py`: `load_fen(fen)` → `GameState` (it is `GameState.from_fen`), `legal_move(gs, "e2e4")` → `Move`, `state_snapshot(gs)`.
 - **Known bugs are pinned as strict `xfail` tests**, each citing its finding ID in `docs/improvement-plan/01-current-state.md` (R1 underpromotion, R2 rank-8 notation, R5 game-over flags, S1 mate window). When a fix lands, the test XPASSes and fails the run, so **remove the `xfail` mark as part of the fix**.
 - These `xfail`s use `raises=AssertionError`. Setup and state-restoration failures use `pytest.fail()` so they can never pass as an expected failure. Keep that distinction in new tests.
-- `pyproject.toml` has ruff per-file ignores for the legacy modules (wildcard and unused imports). Delete them when those modules are cleaned up in Phase 2.
+- A pure refactor must leave the benchmark's node counts and chosen moves identical; the search is deterministic.
 
 ## Architecture
 
-### Board and move model (`chessEngine.py`)
+Package `chess_ai/`: `engine.py` (rules), `search.py` (alpha-beta), `evaluation.py` (scoring), `gui.py` (pygame), `benchmark.py`, `__main__.py` (entry point). Piece sprites are in `chess_ai/assets/pieces/`.
+
+### Board and move model (`engine.py`)
 - `GameState.board` is an 8×8 list of 2-char strings: color (`w`/`b`) plus piece (`K Q R B N p`; pawns are lowercase). Empty squares are `"--"`. Row 0 is Black's back rank (rank 8), and row 7 is White's.
-- `Move` snapshots `pieceMoved`/`pieceCaptured` from the board when it's constructed. Equality compares only `moveID` (start/end squares).
-- Bug R2: `Move.ranksToRows` maps `"0"` (not `"8"`) to row 0, so `getChessNotation()` prints rank 8 as `0` (e.g. `e0e7`). `tests/test_search.py` asserts on this string, and `tests/test_notation.py` pins the bug as an `xfail`. Test helpers convert square names with `conftest.square()` so they don't depend on it.
-- Promotion always auto-queens inside `makeMove`, and no underpromotion moves are generated. That's why perft positions 4 and 5 are strict `xfail`s.
+- `GameState.from_fen()` / `to_fen()` handle the four FEN fields the engine tracks. There's no halfmove clock or move number yet.
+- `Move` snapshots `piece_moved`/`piece_captured` from the board when it's constructed. Equality compares only `move_id` (start/end squares).
+- Bug R2: `Move.RANKS_TO_ROWS` maps `"0"` (not `"8"`) to row 0, so `coordinate_notation()` prints rank 8 as `0` (e.g. `e0e7`). `tests/test_search.py` asserts on this string, and `tests/test_notation.py` pins the bug as an `xfail`. FEN code and test helpers compute squares arithmetically so they don't depend on it.
+- Promotion always auto-queens inside `make_move`, and no underpromotion moves are generated. That's why perft positions 4 and 5 are strict `xfail`s.
 
 ### Legality, make/undo, and game-over flags
-- `getValidMoves()` generates pseudo-legal moves and then filters them by calling `makeMove` → `inCheck` → `undoMove` on each one. `squareUnderAttack` works by generating every opponent move, so attack checks are expensive.
-- Castling moves are added after the legality filter. `getCastleMoves` checks castling rights and empty squares, but it never checks whether a rook is actually on the corner. Correct castling depends on `updateCastlRights` revoking rights when a rook moves or is captured. The `rook_capture` perft case covers this.
-- `undoMove` restores en passant and castling rights by popping `enpassantPossibleLog` and `castleRightLog`. Any code that sets up a position by hand must reset those logs too; the FEN loaders show how.
-- `getValidMoves()` has a side effect that search depends on: it sets `gs.checkmate` / `gs.stalemate`. `undoMove` clears both. The search's terminal-node check only works because it calls `getValidMoves()` right after each `makeMove`.
-- The engine has no FEN parser yet (planned for Phase 2). Tests use `position_from_fen` in `tests/conftest.py`, and `benchmark.py` has its own copy.
-- `test_perft.py` also snapshots the full state around every make/undo pair and asserts it's restored exactly. Run it after touching `makeMove`, `undoMove`, move generation, or castling/en passant logic.
+- `get_legal_moves()` generates pseudo-legal moves and then filters them by calling `make_move` → `in_check` → `undo_move` on each one. `is_square_attacked` works by generating every opponent move, so attack checks are expensive; this is the main performance bottleneck (Phase 4).
+- Castling moves are added after the legality filter. `_get_castle_moves` checks castling rights and empty squares, but it never checks whether a rook is actually on the corner. Correct castling depends on `_update_castling_rights` revoking rights when a rook moves or is captured. The `rook_capture` perft case covers this.
+- `undo_move` restores en passant and castling rights by popping `en_passant_log` and `castling_rights_log`. Any code that sets up a position by hand must reset those logs too; `from_fen` shows how.
+- `get_legal_moves()` has a side effect that search depends on: it sets `gs.checkmate` / `gs.stalemate`. `undo_move` clears both. The search's terminal-node check only works because it calls `get_legal_moves()` right after each `make_move`.
+- `test_perft.py` also snapshots the full state around every make/undo pair and checks it's restored exactly. Run it after touching `make_move`, `undo_move`, move generation, or castling/en passant logic.
 
-### Search and evaluation (`SmartMoveFinder.py`)
-- The entry point is `findBestMoveMinMax(gs, validMoves, returnQueue=None)`. It returns a single legal move immediately and otherwise runs `findMoveMinMaxAlphaBeta` at `MAX_DEPTH` (3). Exceptions are printed, and the function falls back to `validMoves[0]`.
-- State lives in module-level globals. `nextMove` is only recorded when `depth == MAX_DEPTH`, so the root must be called with `MAX_DEPTH`. `nodesExplored` is reset on each search and read by `benchmark.py`.
-- Move ordering (`get_move_priority`: MVV-LVA captures, promotions, checks, development, center) is applied only at the top two plies, and it does a make/undo per move to detect checks. Killer moves and a history heuristic aren't implemented, even though the latest commit message mentions them.
-- `scoreBoard(gs, depth)` scores in pawn units (Q = 10), always from White's point of view. Mate scores are `±(CHECKMATE + depth)` (`CHECKMATE = 1000`) so the search prefers faster mates. Non-mate scores are clamped to ±`CHECKMATE`. The evaluation sums material and PSTs, bishop pair, rook files, opening principles, mobility, king safety, check bonus, pawn structure, and a tactical term.
-- There are two caches:
+### Search (`search.py`) and evaluation (`evaluation.py`)
+- The entry point is `search.find_best_move(gs, legal_moves, return_queue=None)`. It returns a single legal move immediately and otherwise runs `minimax_alpha_beta` at `MAX_DEPTH` (3). Exceptions are printed, and the function falls back to `legal_moves[0]`.
+- Search state lives in module-level globals. `next_move` is only recorded when `depth == MAX_DEPTH`, so the root must be called with `MAX_DEPTH`. `nodes_explored` is reset on each search and read by the benchmark.
+- Move ordering (`get_move_priority`: MVV-LVA captures, promotions, checks, development, center) is applied only at the top two plies, and it does a make/undo per move to detect checks. Killer moves and a history heuristic aren't implemented, even though an old commit message mentions them.
+- `evaluation.evaluate(gs, depth)` scores in pawn units (Q = 10), always from White's point of view. Mate scores are `±(CHECKMATE + depth)` (`CHECKMATE = 1000`) so the search prefers faster mates. Non-mate scores are clamped to ±`CHECKMATE`. The evaluation sums material and PSTs, bishop pair, rook files, opening principles, mobility, king safety, check bonus, pawn structure, and a tactical term.
+- There are two caches, both in `evaluation.py`:
   - `eval_cache` is module-level, persists across searches, and uses LFU eviction at 1000 entries. Its key is **board + side to move only**; castling rights and the en passant square aren't part of it.
-  - `gs._attack_cache` is attached dynamically to the `GameState`. Its key comes from `_position_key` (board, side, en passant, castling), and it's cleared at the start of each `findBestMoveMinMax`. `get_all_attacks` builds it from *legal* moves (`getValidMoves`) after temporarily flipping `whiteToMove`, and it suppresses en passant for the side not on move so make/undo isn't corrupted.
+  - `gs._attack_cache` is attached dynamically to the `GameState`. Its key comes from `_position_key` (board, side, en passant, castling), and `search.find_best_move` clears it through `clear_attack_cache()` before each search. `get_all_attacks` builds it from *legal* moves (`get_legal_moves`) after temporarily flipping `white_to_move`, and it suppresses en passant for the side not on move so make/undo isn't corrupted.
 
-### GUI (`chessMain.py`)
-- The pygame loop runs the AI in a `multiprocessing.Process` and passes a `Queue` as `returnQueue`. The `GameState` is pickled into the child process, so globals the child sets (`nodesExplored`, `eval_cache`) never reach the GUI process. Undo and reset terminate the running AI process.
-- The evaluation bar uses `chessMain.evaluatePosition()`, which is a separate, simpler evaluator (Q = 9, its own PSTs). It is **not** `SmartMoveFinder.scoreBoard`, so the bar doesn't reflect what the engine thinks.
+### GUI (`gui.py`)
+- The pygame loop runs the AI in a `multiprocessing.Process` and passes a `Queue` as `return_queue`. The `GameState` is pickled into the child process, so globals the child sets (`nodes_explored`, `eval_cache`) never reach the GUI process. Undo and reset terminate the running AI process.
+- The evaluation bar uses `gui.evaluate_position()`, which is a separate, simpler evaluator (Q = 9, its own PSTs). It is **not** `evaluation.evaluate`, so the bar doesn't reflect what the engine thinks.
