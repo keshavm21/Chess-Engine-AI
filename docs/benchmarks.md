@@ -147,3 +147,53 @@ The time limit is honoured to within 0.04 s.
 The two unsolved "avoid" puzzles are the poisoned-pawn traps (Nxe5?? Qa5+ and its mirror). They are the horizon effect: the refutation is 4 plies deep, and these positions only reach depth 3. That is what Phase 6's quiescence search is for.
 
 Test suite: `pytest` ~30 s (it now re-verifies the tactics answers exhaustively), `pytest -m "not slow"` ~4 s.
+
+---
+
+## Phase 6: quiescence search and new evaluation
+
+| | |
+|---|---|
+| Date | 2026-09-29 |
+| Commands | `python -m chess_ai.benchmark`, `python -m chess_ai.tactics`, `python -m chess_ai.match` |
+| Machine / Python | Apple M1, macOS / 3.12.14 |
+
+**Evaluation speed.** Over 300 positions from random games, the new evaluation averages **21 µs per call**, against **274 µs** for the old one (13× faster). It no longer generates any moves.
+
+**Self-play matches** (20 games each: 10 openings × both colours, 0.3 s per move, run with `--jobs 4`). No games were adjudicated.
+
+| Match | Result | Score |
+|---|---|---|
+| Phase 6 engine vs **Phase 5 engine** (old evaluation, no quiescence) | **+17 =3 −0** | **92 %** (≈ +440 Elo, very rough) |
+| Phase 6 engine vs the same engine **without quiescence** | +19 =1 −0 | 98 % |
+| Sanity check: depth 2 vs depth 1 (fixed depth) | +17 =3 −0 | 92 % |
+
+**Tactics suite** (22 puzzles):
+
+| Limit | Phase 5 | Phase 6 |
+|---|---|---|
+| Fixed depth 3 | 17/22 (77 %) | 19/22 (86 %): the poisoned-pawn traps are now solved; only the mate-in-3 puzzles (which need 5 plies) fail |
+| 2 s per move (medium) | 19/22 (86 %) | **22/22 (100 %)** |
+
+**Search.** Node counts now include quiescence nodes. The fixed-depth numbers are not comparable with earlier phases, but deterministic from here on.
+
+| Position | Fixed depth 3: time / nodes | 1 s: depth reached | Move |
+|---|---|---|---|
+| Starting position | 0.06 s / 1 430 | 4 | b1c3 |
+| Italian Game | 0.24 s / 4 514 | 3 | g8f6 |
+| Middlegame | 0.30 s / 5 297 | 3 | d4c6 |
+| Kiwipete | 1.71 s / 34 224 | 2 | e2a6 |
+| **Total** | **2.31 s / 45 465 (≈ 19 700 nodes/s)** | | |
+
+Without the quiescence pruning, Kiwipete took 6.7 s and 164 000 nodes at depth 3. 98 % of those were quiescence nodes, in capture chains up to 32 plies long. Delta pruning plus skipping clearly losing captures cut that 4×, with no change on the tactics suite.
+
+**Depth reached within a time budget** (the same 20 positions as the Phase 5 calibration; quiescence comes on top of these depths):
+
+| Time limit | Phase 5 | Phase 6 |
+|---|---|---|
+| 0.5 s | mostly 2 | mostly 3 (13×), 4 (4×) |
+| 1 s | mostly 3 | mostly 4 (11×) |
+| 2 s (medium, default) | 3 (16×) | **4 (15×)**, 6 (2×), 3 (3×) |
+| 5 s | mostly 4 | 4 (11×), 5 (6×), 6–7 (2×) |
+
+Test suite: `pytest` ~32 s, `pytest -m "not slow"` ~5 s.

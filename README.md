@@ -1,10 +1,10 @@
 # Python Chess AI (Minimax + Alpha-Beta Pruning)
 
-This is a fully functional **Chess Engine** written in Python using `pygame`. It features a custom AI opponent capable of looking ahead using the **Minimax algorithm** with **Alpha-Beta pruning** and advanced positional evaluation heuristics.
+This is a fully functional **Chess Engine** written in Python using `pygame`. It features a custom AI opponent that looks ahead using the **Minimax algorithm** with **Alpha-Beta pruning**, a quiescence search for tactics, and a positional evaluation.
 
 - **Engine:** Handles move generation, validation, castling, en passant, promotion (including underpromotion), and checkmate/stalemate detection.
-- **AI:** Minimax search (as negamax) with Alpha-Beta pruning and iterative deepening under a time limit (about 2 seconds per move by default), move ordering, an evaluation cache, and opening principles.
-- **UI:** Graphical interface with move logging, valid move highlighting, and a live evaluation bar.
+- **AI:** Minimax search (as negamax) with Alpha-Beta pruning, iterative deepening under a time limit (about 2 seconds per move by default), a quiescence search, move ordering, and a tapered positional evaluation.
+- **UI:** Graphical interface with move logging, valid move highlighting, and a live evaluation bar showing the engine's own evaluation.
 - **Platforms:** Developed on macOS; the test suite runs on Linux (Ubuntu) in CI. Windows is untested.
 
 ## Files
@@ -14,6 +14,7 @@ This is a fully functional **Chess Engine** written in Python using `pygame`. It
 - `chess_ai/evaluation.py` — Position evaluation (material, piece-square tables, heuristics)
 - `chess_ai/benchmark.py` — Performance benchmark (move generation and search)
 - `chess_ai/tactics.py` — Tactics suite (puzzles with verified answers) to measure playing strength
+- `chess_ai/match.py` — Self-play matches between two engine configurations
 - `chess_ai/assets/pieces/` — Piece images (`wp.png`, `bK.png`, etc.)
 - `tests/` — Test suite (pytest)
 - `requirements.txt` / `requirements-dev.txt` — Runtime dependencies (pygame) / development tools (pytest, ruff)
@@ -69,25 +70,17 @@ The AI (`chess_ai/search.py` and `chess_ai/evaluation.py`) combines the followin
 ### Algorithm
 - **Minimax with Alpha-Beta Pruning** — efficient search tree pruning, implemented as negamax
 - **Iterative Deepening** — searches 1, 2, 3, … moves deep until the time limit and plays the best move of the deepest completed search
+- **Quiescence Search** — at the end of the search, captures are played out until the position is quiet, so the engine does not misjudge positions in the middle of an exchange
 
-### Piece-Square Tables
-- Encourages knights to develop toward the center
-- Incentivizes pawn advancement
-
-### Opening Principles
-- Penalizes early queen moves
-- Rewards early development of minor pieces (Knights/Bishops)
-- Rewards early castling
-
-### Positional Evaluation
+### Evaluation (in centipawns)
+- **Material** and **piece-square tables** (built from simple rules, e.g. knights prefer the centre), blended between middlegame and endgame tables as material comes off the board
+- **Pawn Structure:** penalties for isolated or doubled pawns; bonuses for passed pawns that grow as they advance
 - **Bishop Pair:** bonus for retaining both bishops
 - **Rook Structure:** rooks on open or semi-open files get rewarded
-- **King Safety:** penalties for exposed kings; bonuses for pawn shields
-- **Pawn Structure:** penalties for isolated or doubled pawns; bonuses for passed pawns
+- **King Safety:** a pawn shield in front of the king in the middlegame; the king centralises in the endgame
 
 ## Performance
 - **Time per move:** difficulty presets in `chess_ai/search.py` (easy 0.5 s, medium 2 s, hard 5 s); the GUI uses medium, which typically reaches 3–5 half-moves deep
-- **Caching:** Evaluations of previously seen board positions are cached during a search
 
 ## Features
 - Chess rules including special moves (castling, en passant, pawn promotion to any piece)
@@ -104,6 +97,7 @@ pip install -r requirements-dev.txt
 pytest                      # full test suite
 python -m chess_ai.benchmark  # performance benchmark (a few seconds)
 python -m chess_ai.tactics    # tactics suite solve rate (about a minute)
+python -m chess_ai.match default no-quiescence --jobs 4   # self-play match between two engine configurations
 ```
 
 ## Known Limitations

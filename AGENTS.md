@@ -51,7 +51,8 @@ repository before deciding what remains to be done.
 ## Search
 
 The search implementation currently uses Minimax with Alpha-Beta pruning
-(written as negamax), with iterative deepening under a time limit.
+(written as negamax), with iterative deepening under a time limit and a
+quiescence search.
 
 When modifying search:
 
@@ -103,8 +104,7 @@ Maintain the separation of responsibilities:
   - search-related caching/data structures
 
 - `chess_ai/evaluation.py`
-  - static evaluation
-  - evaluation-related caching
+  - static evaluation (a pure function of the board and side to move)
 
 Do not mix GUI responsibilities into the chess engine or search code
 without a strong reason.

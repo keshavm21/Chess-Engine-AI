@@ -214,15 +214,32 @@ docs: record Phase 5 results and update guides
 
 **Verification:** tests pass. Tactics solve rate meets the target. The self-play match against the Phase 5 configuration at equal time is clearly positive. Play-test a few full games by hand.
 
-**Planned commits:**
+**Outcome (2026-09-29):**
+- **Tests:** 222 pass.
+- **Match:** the Phase 6 engine beat the Phase 5 engine **+17 =3 −0** at equal time (0.3 s/move, 20 games). With vs without quiescence: +19 =1 −0.
+- **Tactics:** **22/22 at 2 s per move**, up from 19/22. The poisoned-pawn traps (the horizon effect) are solved even at depth 3.
+- **Depth:** the default 2 s now reaches depth 4 in most middlegame positions (target met).
+- **Evaluation speed:** 13× faster (21 µs vs 274 µs per call).
+
+Notes:
+- **Order changed:** the new evaluation came **before** quiescence. Quiescence multiplies evaluation calls, and the old evaluation (which generated legal moves) was far too slow for that.
+- **Legacy evaluation:** the old evaluation stayed available as `legacy_evaluation.py` (the match tool's "phase5" configuration) until the match result was in. It was then deleted together with its attack-cache tests (`tests/test_attack_cache.py`); the code those tests covered no longer exists.
+- **Piece-square tables:** they are now generated from simple, documented rules, which resolves E6/E8 (the Sunfish-derived tables are gone).
+- **Mate scores:** they now count plies from the root (`CHECKMATE - ply`, `CHECKMATE = 100 000` centipawns). The same mate therefore scores the same at every iteration and inside quiescence, as the Phase 7 transposition table needs.
+- **Quiescence cost:** in capture-heavy positions (Kiwipete), quiescence initially exploded: 98 % of nodes, with chains of up to 32 plies. Delta pruning plus skipping clearly losing captures cut Kiwipete's depth-3 search 4× with no change on the tactics suite. Captures are also searched first (MVV-LVA) at every ply.
+- **Tactics threshold test:** it asserts that **every** puzzle is solved at the depth it needs in principle (2n − 1 plies for mate in n, 3 plies plus quiescence otherwise), not ≥ 90 % at a time limit. That's stricter, and it doesn't depend on CI machine speed. The time-limited solve rate is recorded in `docs/benchmarks.md`.
+- **Flaky Phase 5 test fixed:** the interrupted-search test derived its time limit from a timing measurement, and it failed in 4 of 12 runs under CPU load. It now uses a fake clock, so it's deterministic (0 of 12 under the same load), and a mutation check confirms it still catches a missing position restore.
+
+**Commits:**
 ```
-feat: add self-play match script for comparing engine configurations
-feat: add quiescence search over captures and promotions
-feat: rewrite evaluation in centipawns with tapered piece-square tables
-refactor: remove legacy tactical and hanging-piece evaluation terms
-test: add evaluation symmetry and sanity tests
+test: make the interrupted-search test independent of machine load
+feat: add self-play match tool for comparing engine configurations
+feat: rewrite evaluation in centipawns with rule-based tapered tables
+feat: add quiescence search with delta and losing-capture pruning
+refactor: remove the legacy evaluation after it lost the comparison match
 feat: drive the GUI evaluation bar from the engine evaluation
-test: enforce tactics suite solve-rate threshold
+test: require every tactics puzzle to be solved at its required depth
+docs: record Phase 6 results and update guides
 ```
 
 ---

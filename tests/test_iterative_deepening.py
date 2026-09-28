@@ -69,14 +69,28 @@ def test_tiny_time_limit_still_returns_a_searched_move():
     assert is_legal(gs, result.move)
 
 
-def test_interrupted_search_restores_the_position(state_snapshot):
+class FakeClock:
+    """Stands in for time.perf_counter: every reading advances it by 1 ms, so a
+    search's timing depends only on how often it reads the clock (roughly once
+    per node) and never on the machine's speed or load."""
+
+    def __init__(self):
+        self.now = 0.0
+
+    def __call__(self):
+        self.now += 0.001
+        return self.now
+
+
+def test_interrupted_search_restores_the_position(state_snapshot, monkeypatch):
     gs = GameState.from_fen(KIWIPETE)
     before = state_snapshot(gs)
-    # Depth 2 takes far longer than 3x depth 1 here, so this limit lets depth 1
-    # finish and then interrupts depth 2, on fast and slow machines alike.
-    depth_one_time = search.Searcher(max_depth=1).search(gs).elapsed
+    # Depth 1 never reads the clock and always completes; depth 2 reads it at
+    # every node and needs thousands of nodes here, so 0.1 s (100 readings)
+    # always interrupts it.
+    monkeypatch.setattr(search.time, "perf_counter", FakeClock())
 
-    result = search.Searcher(time_limit=3 * depth_one_time).search(gs)
+    result = search.Searcher(time_limit=0.1).search(gs)
 
     assert result.timed_out is True
     assert result.depth == 1

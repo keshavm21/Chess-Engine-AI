@@ -365,19 +365,23 @@ class GameState:
                 elif move.end_col == 7:
                     self.castling_rights.bks = False
 
-    def get_legal_moves(self):
+    def get_legal_moves(self, captures_only=False):
         """Return the legal moves for the side to move.
+
+        With `captures_only`, only captures (including en passant) and
+        promotions are returned; the quiescence search uses this.
 
         This is a pure query: the position (including ``checkmate`` /
         ``stalemate``) is the same afterwards. Use update_game_status() to
         refresh those flags.
         """
-        # Generate every move, then keep those that don't leave our king attacked.
-        moves = [
-            move
-            for move in self.get_pseudo_legal_moves()
-            if not self._leaves_king_in_check(move)
-        ]
+        moves = self.get_pseudo_legal_moves()
+        if captures_only:
+            moves = [m for m in moves if m.is_capture or m.is_promotion]
+        # Keep the moves that don't leave our king attacked.
+        moves = [move for move in moves if not self._leaves_king_in_check(move)]
+        if captures_only:
+            return moves
         # Castling moves check their own safety conditions.
         if self.white_to_move:
             self._get_castle_moves(
