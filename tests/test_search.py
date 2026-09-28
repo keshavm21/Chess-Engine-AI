@@ -1,4 +1,4 @@
-"""Regression tests for find_best_move() / minimax_alpha_beta()."""
+"""Regression tests for the search (search.Searcher / search.find_best_move)."""
 
 import time
 

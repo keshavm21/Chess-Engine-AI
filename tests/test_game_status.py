@@ -1,8 +1,6 @@
 """Tests for game-status detection (finding R5): legal-move generation is a
 pure query, and checkmate/stalemate are set only by update_game_status()."""
 
-import math
-
 import pytest
 
 from chess_ai import search
@@ -54,10 +52,11 @@ def test_search_scores_checkmate_from_empty_move_list(depth, load_fen):
     """The search decides terminal positions from the (empty) legal move list,
     without the flags; Black is mated here, so the score is +(CHECKMATE + depth)."""
     gs = load_fen(CHECKMATED)
-    score = search.minimax_alpha_beta(gs, [], depth, -math.inf, math.inf, False)
+    _, score = search.Searcher().search_depth(gs, [], depth)
     assert score == CHECKMATE + depth
 
 
 def test_search_scores_stalemate_from_empty_move_list(load_fen):
     gs = load_fen(STALEMATED)
-    assert search.minimax_alpha_beta(gs, [], 2, -math.inf, math.inf, False) == STALEMATE
+    _, score = search.Searcher().search_depth(gs, [], 2)
+    assert score == STALEMATE

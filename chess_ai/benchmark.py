@@ -128,11 +128,11 @@ def run_search():
         legal_moves = gs.get_legal_moves()
 
         t0 = time.perf_counter()
-        chosen = search.find_best_move(gs, list(legal_moves))
+        result = search.Searcher(depth).search(gs, list(legal_moves))
         elapsed = time.perf_counter() - t0
 
-        nodes = search.nodes_explored
-        move = chosen.coordinate_notation() if chosen else "None"
+        nodes = result.nodes
+        move = result.move.coordinate_notation() if result.move else "None"
         results.append(
             {
                 "name": name,
