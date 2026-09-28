@@ -38,7 +38,7 @@ def test_three_legal_moves_finds_the_free_queen_capture(load_fen):
 
     moves = gs.get_legal_moves()
     assert len(moves) == 3, f"expected exactly 3 legal moves, got {len(moves)}"
-    assert moves[0].coordinate_notation() == "e0e7", (
+    assert moves[0].coordinate_notation() == "e8e7", (
         "this test assumes legal_moves[0] is the king retreat (Ke7); if "
         "move-generation order changed, re-verify which index the "
         "shortcut would actually return."

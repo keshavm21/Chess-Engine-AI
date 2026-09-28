@@ -114,7 +114,6 @@ class GameState:
             and en_passant[0] in "abcdefgh"
             and en_passant[1] in "36"
         ):
-            # Computed directly: Move.RANKS_TO_ROWS maps rank 8 wrongly (bug R2).
             en_passant_square = (8 - int(en_passant[1]), ord(en_passant[0]) - ord("a"))
         else:
             raise ValueError(f"invalid FEN en-passant square {en_passant!r}")
@@ -622,7 +621,7 @@ class CastlingRights:
 
 
 class Move:
-    RANKS_TO_ROWS = {"1": 7, "2": 6, "3": 5, "4": 4, "5": 3, "6": 2, "7": 1, "0": 0}
+    RANKS_TO_ROWS = {"1": 7, "2": 6, "3": 5, "4": 4, "5": 3, "6": 2, "7": 1, "8": 0}
 
     ROWS_TO_RANKS = {v: k for k, v in RANKS_TO_ROWS.items()}
 

@@ -22,12 +22,6 @@ def test_notation_on_ranks_1_to_7(fen, coordinates, short, load_fen, legal_move)
     assert str(move) == short
 
 
-@pytest.mark.xfail(
-    reason="Move.RANKS_TO_ROWS maps '0' instead of '8' to row 0 -- "
-    "docs/improvement-plan finding R2, fixed in Phase 3",
-    raises=AssertionError,
-    strict=True,
-)
 @pytest.mark.parametrize(
     ("fen", "coordinates", "short"),
     [
@@ -37,6 +31,7 @@ def test_notation_on_ranks_1_to_7(fen, coordinates, short, load_fen, legal_move)
     ],
 )
 def test_notation_on_rank_8(fen, coordinates, short, load_fen, legal_move):
+    """Regression test for finding R2: rank 8 used to be written as "0"."""
     move = legal_move(load_fen(fen), coordinates)
     assert move.coordinate_notation() == coordinates
     assert str(move) == short

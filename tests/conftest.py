@@ -22,8 +22,8 @@ def snapshot(gs):
 
 
 def square(name):
-    """(row, col) for a square name such as "e4". Computed here rather than
-    via Move.RANKS_TO_ROWS, which maps rank 8 incorrectly (finding R2)."""
+    """(row, col) for a square name such as "e4". Computed independently of
+    the engine's Move.RANKS_TO_ROWS table so tests don't check it against itself."""
     return 8 - int(name[1]), ord(name[0]) - ord("a")
 
 
