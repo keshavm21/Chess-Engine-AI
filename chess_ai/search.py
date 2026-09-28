@@ -1,4 +1,4 @@
-"""Move search: minimax with alpha-beta pruning and move ordering."""
+"""Move search: negamax (minimax) with alpha-beta pruning and move ordering."""
 
 import math
 import random
@@ -84,7 +84,7 @@ class SearchResult:
 
 
 class Searcher:
-    """Minimax search with alpha-beta pruning.
+    """Negamax search with alpha-beta pruning.
 
     All state of a search (node counters, best root move) lives on the
     instance, so separate searches cannot interfere with each other.
@@ -94,7 +94,6 @@ class Searcher:
         self.max_depth = max_depth
         self.nodes = 0
         self.cutoffs = 0
-        self._root_depth = max_depth
         self._best_root_move = None
 
     def search(self, gs, legal_moves=None):
@@ -128,79 +127,62 @@ class Searcher:
         Returns (best move, score from White's point of view). The best move is
         None when there are no legal moves.
         """
-        self._root_depth = depth
         self._best_root_move = None
+        color = 1 if gs.white_to_move else -1
         # The root window must be unbounded: mate scores are
         # CHECKMATE + depth, i.e. >= CHECKMATE, so a [-CHECKMATE, CHECKMATE]
         # window made the first mate found (even a slow one) cause a cutoff
         # before a faster mate further down the move list was examined.
-        score = self._minimax(
-            gs, legal_moves, depth, -math.inf, math.inf, gs.white_to_move
-        )
-        return self._best_root_move, score
+        score = self._negamax(gs, legal_moves, depth, -math.inf, math.inf, color, 0)
+        return self._best_root_move, color * score
 
-    def _minimax(self, gs, legal_moves, depth, alpha, beta, white_to_move):
-        """Minimax with alpha-beta pruning, `depth` plies deep.
+    def _negamax(self, gs, legal_moves, depth, alpha, beta, color, ply):
+        """Alpha-beta negamax search, `depth` plies deep.
 
-        Returns the score from White's point of view and records the best move
-        at the root in `_best_root_move`.
+        Scores are from the point of view of the side to move: `color` is +1
+        when White is to move and -1 when Black is, and a child's score is
+        negated for its parent. This is minimax written once for both sides.
+        `ply` is the distance from the root; the best move at the root is
+        recorded in `_best_root_move`.
         """
         self.nodes += 1
 
         # No legal moves: checkmate or stalemate (decided here, not via flags
         # set as a side effect of move generation).
         if not legal_moves:
-            return mate_score(gs, depth) if gs.in_check() else STALEMATE
+            return color * (mate_score(gs, depth) if gs.in_check() else STALEMATE)
         if depth == 0:
-            return evaluate(gs, depth)
+            return color * evaluate(gs, depth)
 
         # Sort moves at the top two plies for better pruning
-        root = depth == self._root_depth
-        if root or depth == self._root_depth - 1:
+        if ply <= 1:
             moves = sorted(
                 legal_moves,
-                key=lambda m: get_move_priority(m, gs, white_to_move),
+                key=lambda m: get_move_priority(m, gs, color == 1),
                 reverse=True,
             )
         else:
             moves = legal_moves
 
-        if white_to_move:
-            max_score = -math.inf
-            for move in moves:
-                gs.make_move(move)
-                next_moves = gs.get_legal_moves()
-                score = self._minimax(gs, next_moves, depth - 1, alpha, beta, False)
-                gs.undo_move()
+        best_score = -math.inf
+        for move in moves:
+            gs.make_move(move)
+            next_moves = gs.get_legal_moves()
+            score = -self._negamax(
+                gs, next_moves, depth - 1, -beta, -alpha, -color, ply + 1
+            )
+            gs.undo_move()
 
-                if score > max_score:
-                    max_score = score
-                    if root:
-                        self._best_root_move = move
+            if score > best_score:
+                best_score = score
+                if ply == 0:
+                    self._best_root_move = move
 
-                alpha = max(alpha, score)
-                if beta <= alpha:
-                    self.cutoffs += 1
-                    break
-            return max_score
-        else:
-            min_score = math.inf
-            for move in moves:
-                gs.make_move(move)
-                next_moves = gs.get_legal_moves()
-                score = self._minimax(gs, next_moves, depth - 1, alpha, beta, True)
-                gs.undo_move()
-
-                if score < min_score:
-                    min_score = score
-                    if root:
-                        self._best_root_move = move
-
-                beta = min(beta, score)
-                if beta <= alpha:
-                    self.cutoffs += 1
-                    break
-            return min_score
+            alpha = max(alpha, score)
+            if alpha >= beta:
+                self.cutoffs += 1
+                break
+        return best_score
 
 
 def find_best_move(gs, legal_moves, return_queue=None, max_depth=MAX_DEPTH):
