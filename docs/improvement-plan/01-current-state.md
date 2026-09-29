@@ -3,7 +3,7 @@
 A snapshot of the repository as it is today, before the improvement work starts.
 Every finding in this document was checked against the code or by running it. Anything I only inferred from reading the code is labelled *(from reading the code)* or *(not yet verified)*.
 
-> **Status:** Phase 3 fixed R1, R2, R5, R6, S1, G1 and G4 (marked ✅ below). Phase 4 found and fixed R7, and made move generation and search 11–15× faster (see [benchmarks](../benchmarks.md)). Phase 6 replaced the evaluation (E1–E8, G5) and added quiescence (S2). Phase 7 added the draw rules (R3, G8). A late-repetition bug in them (R8) was fixed right after. Phase 8 fixed the remaining GUI findings (G2, G3, G6, G7, G9, G10).
+> **Status:** Phase 3 fixed R1, R2, R5, R6, S1, G1 and G4 (marked ✅ below). Phase 4 found and fixed R7, and made move generation and search 11–15× faster (see [benchmarks](../benchmarks.md)). Phase 6 replaced the evaluation (E1–E8, G5) and added quiescence (S2). Phase 7 added the draw rules (R3, G8). A late-repetition bug in them (R8) was fixed right after. Phase 8 fixed the remaining GUI findings (G2, G3, G6, G7, G9, G10). **Every finding is now fixed; the plan is complete (v1.0.0).**
 >
 > **Note:** this is a snapshot from before Phase 2. File and function names here are the old ones (`chessEngine.py`, `getValidMoves`, …). Phase 2 moved the code into the `chess_ai/` package and renamed identifiers to PEP 8; the bugs listed here are otherwise unchanged until the phase that fixes them.
 
@@ -102,7 +102,7 @@ The test suite also checks, after every make/undo pair, that the full game state
 |---|---|---|
 | S1 ✅ *fixed in Phase 3* | **The engine can pick a slower mate over mate-in-1.** The root window is `[-CHECKMATE, +CHECKMATE]`, but mate scores are `CHECKMATE + depth_remaining`, which is ≥ 1000. A mate-in-2 scores exactly 1000, so the root takes an immediate beta cutoff and stops looking. If move ordering puts that move first, the real mate-in-1 is never examined. | Reproduced: in 12 random K+Q+R vs K positions with a mate-in-1, the engine chose a different move twice. Examples: `3k4/5R2/8/2K5/4Q3/8/8/8 w - -` (plays Qd5+ instead of Qa8#) and `8/8/1R2Q3/8/8/8/8/k1K5 w - -` (plays Qe5+ instead of Ra6#/Rb1#) |
 | S2 ✅ *fixed in Phase 6* | **Horizon effect.** With no quiescence search, the last ply can "win" material that the next ply loses right back. The evaluation's `tactical_score` tries to patch this, but badly (see E1/E2). | From reading the code |
-| S3 | **Search time depends on position complexity** (5–64 s), so the GUI can freeze in the "thinking" state for over a minute. | Benchmark (§5) |
+| S3 ✅ *fixed in Phase 5 (time-limited search)* | **Search time depends on position complexity** (5–64 s), so the GUI can freeze in the "thinking" state for over a minute. | Benchmark (§5) |
 
 ---
 

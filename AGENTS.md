@@ -106,6 +106,9 @@ Maintain the separation of responsibilities:
 - `chess_ai/evaluation.py`
   - static evaluation (a pure function of the board and side to move)
 
+- `chess_ai/uci.py`
+  - the UCI protocol front end (uses the engine and search; no GUI code)
+
 Do not mix GUI responsibilities into the chess engine or search code
 without a strong reason.
 
