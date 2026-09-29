@@ -1,5 +1,6 @@
 """Regression tests for the search (search.Searcher / search.find_best_move)."""
 
+import queue
 import time
 
 import pytest
@@ -134,3 +135,28 @@ def test_single_depth_three_pass_prefers_mate_in_one(fen, load_fen):
     gs = load_fen(fen)
     move, _ = search.Searcher().search_depth(gs, gs.get_legal_moves(), 3)
     assert delivers_checkmate(gs, move)
+
+
+def test_search_to_queue_sends_the_whole_search_result(load_fen):
+    """The GUI's search process sends the SearchResult, for its status line."""
+    gs = load_fen("6k1/5ppp/8/8/8/8/8/R5K1 w - -")
+    results = queue.Queue()
+    search.search_to_queue(gs, gs.get_legal_moves(), results, max_depth=2)
+    result = results.get_nowait()
+    assert result.move.coordinate_notation() == "a1a8"
+    assert result.depth == 1  # a mate stops the search
+    assert result.score == CHECKMATE - 1
+
+
+def test_search_to_queue_answers_even_when_the_search_fails(
+    load_fen, monkeypatch, capsys
+):
+    def broken_search(self, gs, legal_moves=None):
+        raise RuntimeError("search failed")
+
+    monkeypatch.setattr(search.Searcher, "search", broken_search)
+    gs = load_fen("6k1/5ppp/8/8/8/8/8/R5K1 w - -")
+    results = queue.Queue()
+    search.search_to_queue(gs, gs.get_legal_moves(), results)
+    assert results.get_nowait() is None  # the GUI then plays a legal move
+    assert "RuntimeError: search failed" in capsys.readouterr().err

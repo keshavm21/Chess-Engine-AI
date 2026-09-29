@@ -496,23 +496,20 @@ def evaluate_position(gs, legal_moves=None):
     return Searcher().search_depth(gs, legal_moves, 0)[1]
 
 
-def find_best_move(gs, legal_moves, return_queue=None, max_depth=None, time_limit=None):
-    """Return the best move for the side to move (see Searcher).
+def find_best_move(gs, legal_moves, max_depth=None, time_limit=None):
+    """Return the best move for the side to move (see Searcher)."""
+    return Searcher(max_depth, time_limit).search(gs, legal_moves).move
 
-    When `return_queue` is given (the GUI runs this in a child process), the
-    move is put on the queue instead of returned. Exceptions are printed and
-    the first legal move is used, so the GUI never waits forever.
+
+def search_to_queue(gs, legal_moves, result_queue, max_depth=None, time_limit=None):
+    """Search the position and put the SearchResult on `result_queue`.
+
+    The GUI runs this in a separate process. If the search fails, the error is
+    printed and None is put instead, so the GUI is never left waiting.
     """
     try:
-        result = Searcher(max_depth, time_limit).search(gs, legal_moves).move
+        result = Searcher(max_depth, time_limit).search(gs, legal_moves)
     except Exception:
         traceback.print_exc()
-        result = legal_moves[0] if legal_moves else None
-
-    if return_queue is not None:
-        try:
-            return_queue.put(result)
-        except Exception:
-            pass
-    else:
-        return result
+        result = None
+    result_queue.put(result)

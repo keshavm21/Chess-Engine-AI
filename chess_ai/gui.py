@@ -25,6 +25,7 @@ import pygame as p  # noqa: E402
 
 from chess_ai import search  # noqa: E402
 from chess_ai.engine import PROMOTION_PIECES, GameState  # noqa: E402
+from chess_ai.evaluation import CHECKMATE  # noqa: E402
 
 # Piece sprites live next to this module.
 IMAGE_PATH = os.path.join(os.path.dirname(__file__), "assets", "pieces")
@@ -61,9 +62,11 @@ TEXT_COLOR = (232, 230, 227)
 MUTED_TEXT = (155, 152, 148)
 BUTTON_COLOR, BUTTON_HOVER, BUTTON_ACTIVE = (62, 59, 55), (82, 79, 74), (98, 138, 52)
 
-# Side panel layout (y coordinates): the move log, then the buttons.
+# Side panel layout (y coordinates): the status lines, the move log, then
+# the buttons.
 PANEL_PADDING = 14
-LOG_BOTTOM = 334
+HEADLINE_Y, PLAYERS_Y, SEARCH_INFO_Y = 12, 38, 56
+LOG_TOP, LOG_BOTTOM = 84, 334
 SIDE_LABEL_Y, SIDE_BUTTONS_Y = 344, 362
 LEVEL_LABEL_Y, LEVEL_BUTTONS_Y = 396, 414
 ACTION_BUTTONS_Y = 452
@@ -168,6 +171,28 @@ def take_back_move(gs, white_is_human, black_is_human):
         gs.undo_move()
 
 
+def format_score(score):
+    """A search score (centipawns, White's point of view) as text: "+0.35",
+    "-1.20", or "+M2" / "-M1" when White / Black mates in that many moves."""
+    if abs(score) >= search.MATE_THRESHOLD:
+        plies = CHECKMATE - abs(score)  # to the mate, counted from the search root
+        return f"{'+' if score > 0 else '-'}M{(plies + 1) // 2}"
+    return f"{score / 100:+.2f}"
+
+
+def describe_search(result):
+    """One line about the AI's search for its last move, e.g.
+    "AI: depth 5, eval +0.35, 1.9 s" ("" if there is nothing to tell)."""
+    if result is None:
+        return ""
+    if result.depth == 0:
+        return "AI: the only legal move"
+    return (
+        f"AI: depth {result.depth}, eval {format_score(result.score)}, "
+        f"{result.elapsed:.1f} s"
+    )
+
+
 def game_over_text(gs):
     """The result of a finished game, e.g. "White wins by checkmate"."""
     if gs.checkmate:
@@ -256,6 +281,8 @@ class App:
         self.clock = p.time.Clock()
         self.move_log_font = p.font.SysFont("Arial", 18, False, False)
         self.eval_font = p.font.SysFont("Arial", 12, bold=True)
+        self.headline_font = p.font.SysFont("Arial", 18, bold=True)
+        self.detail_font = p.font.SysFont("Arial", 13)
         panel_font = p.font.SysFont("Arial", 13)
         self.panel_labels = {
             text: panel_font.render(text, True, MUTED_TEXT)
@@ -302,6 +329,7 @@ class App:
             self.black_is_human = not human_plays_white
             self.flipped = not human_plays_white
         self.gs = GameState.from_fen(fen) if fen else GameState()
+        self.last_search = None  # the SearchResult behind the AI's last move
         self._clear_input()
         self._position_changed()
 
@@ -309,6 +337,7 @@ class App:
         """Take back the last move; against the AI, back to the human's turn."""
         self._stop_ai()
         take_back_move(self.gs, self.white_is_human, self.black_is_human)
+        self.last_search = None
         self._clear_input()
         self._position_changed()
 
@@ -361,12 +390,13 @@ class App:
         level = search.DIFFICULTIES[self.difficulty]
         self._ai_queue = Queue()
         self._ai_process = Process(
-            target=search.find_best_move,
+            target=search.search_to_queue,
             args=(self.gs, self.legal_moves, self._ai_queue),
             kwargs={"max_depth": level.max_depth, "time_limit": level.time_limit},
             daemon=True,  # never outlives the window
         )
         self._ai_process.start()
+        self._ai_started = time.perf_counter()
         self.state = AI_THINKING
 
     def _poll_ai(self):
@@ -374,12 +404,14 @@ class App:
         if self._ai_process.is_alive():
             return
         try:
-            move = self._ai_queue.get(timeout=AI_ANSWER_TIMEOUT)
+            result = self._ai_queue.get(timeout=AI_ANSWER_TIMEOUT)
         except queue.Empty:
-            move = None  # the process died without answering
+            result = None  # the process died without answering
         self._stop_ai()
+        move = result.move if result is not None else None
         if move not in self.legal_moves:  # never leave the game stuck
             move = search.find_random_move(self.legal_moves)
+        self.last_search = result
         self._play(move)
 
     def _stop_ai(self):
@@ -506,6 +538,25 @@ class App:
 
     # ---------- Drawing ----------
 
+    def status_lines(self):
+        """The three lines at the top of the side panel: what is happening,
+        who plays whom, and how the AI found its last move."""
+        gs = self.gs
+        if self.state == GAME_OVER:
+            headline = game_over_text(gs)
+        elif self.state == PROMOTING:
+            headline = "Choose the promotion piece"
+        elif self.state == AI_THINKING:
+            elapsed = time.perf_counter() - self._ai_started
+            headline = f"AI is thinking... {elapsed:.1f} s"
+        elif self._human_to_move():
+            headline = "Check! Your move" if gs.in_check() else "Your move"
+        else:
+            headline = ("White" if gs.white_to_move else "Black") + " to move"
+        side = "White" if self.human_plays_white else "Black"
+        players = f"You play {side} against the {self.difficulty} AI"
+        return headline, players, describe_search(self.last_search)
+
     def square_marks(self):
         """The marked squares as (kind, square) pairs. The kinds: "last move"
         (its start and end), "check" (a king in check), "selected" (the picked
@@ -598,13 +649,22 @@ class App:
     def _draw_panel(self):
         screen = self.screen
         p.draw.rect(screen, PANEL_BG, (PANEL_LEFT, 0, PANEL_WIDTH, BOARD_HEIGHT))
-        log_rect = p.Rect(PANEL_LEFT, 0, PANEL_WIDTH, LOG_BOTTOM)
-        draw_move_log(screen, self.gs, self.move_log_font, log_rect)
-
         left, right = (
             PANEL_LEFT + PANEL_PADDING,
             PANEL_LEFT + PANEL_WIDTH - PANEL_PADDING,
         )
+        headline, players, search_info = self.status_lines()
+        for text, font, color, y in (
+            (headline, self.headline_font, TEXT_COLOR, HEADLINE_Y),
+            (players, self.detail_font, MUTED_TEXT, PLAYERS_Y),
+            (search_info, self.detail_font, MUTED_TEXT, SEARCH_INFO_Y),
+        ):
+            screen.blit(font.render(text, True, color), (left, y))
+        p.draw.line(screen, PANEL_LINE, (left, LOG_TOP - 6), (right, LOG_TOP - 6))
+
+        log_rect = p.Rect(PANEL_LEFT, LOG_TOP, PANEL_WIDTH, LOG_BOTTOM - LOG_TOP)
+        draw_move_log(screen, self.gs, self.move_log_font, log_rect)
+
         p.draw.line(screen, PANEL_LINE, (left, LOG_BOTTOM + 2), (right, LOG_BOTTOM + 2))
         screen.blit(self.panel_labels["New game as"], (left, SIDE_LABEL_Y))
         screen.blit(

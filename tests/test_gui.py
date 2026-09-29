@@ -467,6 +467,72 @@ class TestSidesAndLevels:
         assert screen.get_at(whites_end) == gui.EVAL_BLACK
 
 
+@pytest.mark.parametrize(
+    ("score", "text"),
+    [
+        (35, "+0.35"),
+        (-120, "-1.20"),
+        (0, "+0.00"),
+        (CHECKMATE - 1, "+M1"),  # White mates on the next ply
+        (CHECKMATE - 3, "+M2"),
+        (-(CHECKMATE - 2), "-M1"),  # Black mates with its next move
+        (-(CHECKMATE - 4), "-M2"),
+    ],
+)
+def test_format_score(score, text):
+    assert gui.format_score(score) == text
+
+
+def test_describe_search():
+    assert gui.describe_search(None) == ""
+    result = search.SearchResult(None, -35, 5, 12345, 100, 1.94)
+    assert gui.describe_search(result) == "AI: depth 5, eval -0.35, 1.9 s"
+    only_move = search.SearchResult(None, None, 0, 0, 0, 0.0)
+    assert gui.describe_search(only_move) == "AI: the only legal move"
+
+
+class TestStatusLines:
+    def test_the_players(self, app, ai_processes):
+        assert app.status_lines()[1] == "You play White against the medium AI"
+        app.difficulty = "hard"
+        app.new_game(human_plays_white=False)
+        assert app.status_lines()[1] == "You play Black against the hard AI"
+
+    def test_through_a_game_against_the_ai(self, app, ai_processes):
+        app.black_is_human = False
+        assert app.status_lines()[0] == "Your move"
+        click(app, "e2")
+        click(app, "e4")
+        assert app.status_lines()[0].startswith("AI is thinking... ")
+        assert app.status_lines()[2] == ""
+        ai_processes[0].answer()
+        app.update()
+        headline, _, search_info = app.status_lines()
+        assert headline == "Your move"
+        assert search_info.startswith("AI: depth 1, eval ")
+        press(app, pygame.K_z)
+        assert app.status_lines()[2] == ""  # it was about a move taken back
+
+    def test_check_promotion_and_game_over(self, app):
+        app.new_game(fen="4k3/P7/8/8/8/8/8/4K2R b K -")
+        click(app, "e8")
+        click(app, "d7")
+        assert app.status_lines()[0] == "Your move"
+        click(app, "h1")
+        click(app, "h7")
+        assert app.status_lines()[0] == "Check! Your move"
+        click(app, "d7")
+        click(app, "c8")
+        click(app, "a7")
+        click(app, "a8")
+        assert app.status_lines()[0] == "Choose the promotion piece"
+        click(app, "a8")  # a queen: mate, as the rook on h7 guards the 7th rank
+        assert coordinates(app.gs)[-1] == "a7a8q"
+        assert app.status_lines()[0] == "White wins by checkmate"
+        app.new_game(fen="7k/5Q2/6K1/8/8/8/8/8 b - -")
+        assert app.status_lines()[0] == "Stalemate"
+
+
 def play_scripted_game(monkeypatch, moves, human_plays_white=True, max_frames=600):
     """Run the real GUI loop (gui.main) headlessly. The human's moves are
     clicked on the board (to play Black, the "Black" button is clicked first);
@@ -486,7 +552,8 @@ def play_scripted_game(monkeypatch, moves, human_plays_white=True, max_frames=60
         def start(self):
             gs, legal_moves, queue = self.args
             wanted = moves[len(gs.move_log)]
-            queue.put(next(m for m in legal_moves if m.coordinate_notation() == wanted))
+            move = next(m for m in legal_moves if m.coordinate_notation() == wanted)
+            queue.put(search.SearchResult(move, 0, 1, 1, 0, 0.0))
 
         def is_alive(self):
             return False
