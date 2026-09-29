@@ -4,6 +4,8 @@ GameState holds the position, makes and takes back moves, and generates legal
 moves; Move describes a single move; CastlingRights records who may castle.
 """
 
+import random
+
 STARTING_FEN = "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1"
 
 _PIECE_FROM_FEN = {
@@ -13,6 +15,38 @@ _PIECE_FROM_FEN = {
 _FEN_FROM_PIECE = {piece: letter for letter, piece in _PIECE_FROM_FEN.items()}
 # Pieces a pawn may promote to; the queen comes first so it is searched first.
 PROMOTION_PIECES = ("Q", "R", "B", "N")
+
+# ---------- Zobrist hashing ----------
+# A position's key is the XOR of one random 64-bit number per (piece, square),
+# plus numbers for the side to move, each castling right and the en-passant
+# file. Moving a piece only XORs a few numbers in and out, so the key is updated
+# incrementally. A fixed seed makes the keys the same in every run.
+_zobrist_random = random.Random(20260929)
+_PIECE_KEYS = {
+    color + kind: [
+        [_zobrist_random.getrandbits(64) for _ in range(8)] for _ in range(8)
+    ]
+    for color in "wb"
+    for kind in "pNBRQK"
+}
+_BLACK_TO_MOVE_KEY = _zobrist_random.getrandbits(64)
+_CASTLING_KEYS = tuple(_zobrist_random.getrandbits(64) for _ in range(4))
+_EN_PASSANT_KEYS = tuple(_zobrist_random.getrandbits(64) for _ in range(8))
+
+
+def _castling_key(rights):
+    key = 0
+    for allowed, number in zip(
+        (rights.wks, rights.bks, rights.wqs, rights.bqs), _CASTLING_KEYS
+    ):
+        if allowed:
+            key ^= number
+    return key
+
+
+def _en_passant_key(square):
+    return _EN_PASSANT_KEYS[square[1]] if square else 0
+
 
 # (row, col) steps used by attack detection.
 _KNIGHT_JUMPS = ((-2, -1), (-2, 1), (-1, -2), (-1, 2), (1, -2), (1, 2), (2, -1), (2, 1))
@@ -105,6 +139,25 @@ class GameState:
                 self.castling_rights.bqs,
             )
         ]
+        # Zobrist key of the current position; the log holds the key of every
+        # position since the start, so undo_move restores it by popping.
+        self.zobrist_key = self.compute_zobrist_key()
+        self.zobrist_log = [self.zobrist_key]
+
+    def compute_zobrist_key(self):
+        """The Zobrist key of the position, computed from scratch."""
+        key = 0
+        for r, row in enumerate(self.board):
+            for c, square in enumerate(row):
+                if square != "--":
+                    key ^= _PIECE_KEYS[square][r][c]
+        if not self.white_to_move:
+            key ^= _BLACK_TO_MOVE_KEY
+        return (
+            key
+            ^ _castling_key(self.castling_rights)
+            ^ _en_passant_key(self.en_passant_square)
+        )
 
     @classmethod
     def from_fen(cls, fen):
@@ -181,6 +234,8 @@ class GameState:
         ]
         gs.en_passant_square = en_passant_square
         gs.en_passant_log = [en_passant_square]
+        gs.zobrist_key = gs.compute_zobrist_key()
+        gs.zobrist_log = [gs.zobrist_key]
         return gs
 
     def to_fen(self):
@@ -220,7 +275,11 @@ class GameState:
         return f"{'/'.join(ranks)} {side} {castling or '-'} {en_passant}"
 
     def make_move(self, move):
-        """Play `move` and update turn, king squares, en passant and castling rights."""
+        """Play `move` and update turn, king squares, en passant, castling rights
+        and the Zobrist key."""
+        old_hash_state = _castling_key(self.castling_rights) ^ _en_passant_key(
+            self.en_passant_square
+        )
         self.board[move.start_row][move.start_col] = "--"
         self.board[move.end_row][move.end_col] = move.piece_moved
         # log the move, so we can undo it later or print a PNG for the game
@@ -275,6 +334,37 @@ class GameState:
                 self.castling_rights.bqs,
             )
         )
+        self.zobrist_key = self._key_after(move, old_hash_state)
+        self.zobrist_log.append(self.zobrist_key)
+
+    def _key_after(self, move, old_hash_state):
+        """Zobrist key after `move` (already played), from the previous key.
+
+        `old_hash_state` is the castling and en-passant part of the previous
+        key; the new one is XORed in from the current state.
+        """
+        key = self.zobrist_key ^ _BLACK_TO_MOVE_KEY
+        key ^= old_hash_state ^ _castling_key(self.castling_rights)
+        key ^= _en_passant_key(self.en_passant_square)
+        start_r, start_c, end_r, end_c = (
+            move.start_row,
+            move.start_col,
+            move.end_row,
+            move.end_col,
+        )
+        key ^= _PIECE_KEYS[move.piece_moved][start_r][start_c]
+        key ^= _PIECE_KEYS[self.board[end_r][end_c]][end_r][end_c]  # incl. promotion
+        if move.is_en_passant:
+            key ^= _PIECE_KEYS[move.piece_captured][start_r][end_c]
+        elif move.piece_captured != "--":
+            key ^= _PIECE_KEYS[move.piece_captured][end_r][end_c]
+        if move.is_castle:
+            rook = move.piece_moved[0] + "R"
+            if end_c == 6:  # kingside: h-file rook to the f-file
+                key ^= _PIECE_KEYS[rook][end_r][7] ^ _PIECE_KEYS[rook][end_r][5]
+            else:  # queenside: a-file rook to the d-file
+                key ^= _PIECE_KEYS[rook][end_r][0] ^ _PIECE_KEYS[rook][end_r][3]
+        return key
 
     def undo_move(self):
         """Take back the last move in the move log (no-op if the log is empty)."""
@@ -299,6 +389,8 @@ class GameState:
                 self.board[move.start_row][move.end_col] = move.piece_captured
             self.en_passant_log.pop()
             self.en_passant_square = self.en_passant_log[-1]
+            self.zobrist_log.pop()
+            self.zobrist_key = self.zobrist_log[-1]
             # undo the castle rights
             # first get rid of the new castle rights from the move we're undoing
             self.castling_rights_log.pop()

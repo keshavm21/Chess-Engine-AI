@@ -18,6 +18,7 @@ def snapshot(gs):
         gs.white_king_location,
         gs.black_king_location,
         len(gs.move_log),
+        gs.zobrist_key,
     )
 
 
