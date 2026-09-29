@@ -63,7 +63,7 @@ def test_score_and_elo():
     assert match.elo_difference(1.0) == math.inf
 
 
-def test_short_match_runs_and_scores_add_up(tmp_path, monkeypatch):
+def test_short_match_runs_and_scores_add_up(tmp_path):
     out = tmp_path / "match.json"
     assert (
         match.main(

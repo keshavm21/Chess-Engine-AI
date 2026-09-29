@@ -31,14 +31,11 @@ from chess_ai.evaluation import CHECKMATE  # noqa: E402
 # Piece sprites live next to this module.
 IMAGE_PATH = os.path.join(os.path.dirname(__file__), "assets", "pieces")
 
-# 400 is another good option and it depends on how good the
-# images you have in terms of quality and resolution and 512 is a power of 2
 BOARD_WIDTH = BOARD_HEIGHT = 512
-EVAL_BAR_WIDTH = 40  # Width of evaluation bar
+EVAL_BAR_WIDTH = 40  # the evaluation bar left of the board
 PANEL_WIDTH = 300  # the side panel right of the board
-# the chess board is 8x8 :)
-DIMENSION = 8
-SQ_SIZE = BOARD_HEIGHT // DIMENSION
+DIMENSION = 8  # squares per side
+SQ_SIZE = BOARD_HEIGHT // DIMENSION  # 64 px; the piece images are scaled to it
 BOARD_LEFT = EVAL_BAR_WIDTH  # the board is drawn right of the evaluation bar
 PANEL_LEFT = BOARD_LEFT + BOARD_WIDTH
 WINDOW_SIZE = (PANEL_LEFT + PANEL_WIDTH, BOARD_HEIGHT)

@@ -55,7 +55,7 @@ DEFAULT_DIFFICULTY = "medium"
 
 
 # ---------- Move Ordering Heuristics ----------
-def get_move_priority(move, gs, is_white):
+def get_move_priority(move, gs):
     """Assign priority to moves for better alpha-beta pruning"""
     priority = 0
 
@@ -337,7 +337,7 @@ class Searcher:
         if ply <= 1:
             moves = sorted(
                 legal_moves,
-                key=lambda m: get_move_priority(m, gs, color == 1),
+                key=lambda m: get_move_priority(m, gs),
                 reverse=True,
             )
             if ply == 0 and self._first_root_move in moves:
