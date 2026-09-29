@@ -170,7 +170,8 @@ class SearchResult:
 
 
 class _SearchTimeoutError(Exception):
-    """Raised inside the search when the time limit has been reached."""
+    """Raised inside the search when the time limit has been reached or a stop
+    was requested."""
 
 
 class Searcher:
@@ -213,11 +214,17 @@ class Searcher:
         self.qnodes = 0
         self.cutoffs = 0
         self._deadline = None  # perf_counter() value at which to stop, if any
+        self._stop_event = None  # see search()
         self._first_root_move = None  # searched first at the root
         self._best_root_move = None
 
-    def search(self, gs, legal_moves=None):
-        """Search the position and return a SearchResult."""
+    def search(self, gs, legal_moves=None, stop_event=None):
+        """Search the position and return a SearchResult.
+
+        `stop_event` (e.g. a threading.Event) lets another thread end the
+        search early: once it is set, the search returns the best move of the
+        deepest completed depth, just as when the time limit is reached.
+        """
         start = time.perf_counter()
         if legal_moves is None:
             legal_moves = gs.get_legal_moves()
@@ -233,10 +240,16 @@ class Searcher:
 
         best_move, best_score, completed_depth, timed_out = None, None, 0, False
         log_length = len(gs.move_log)
+        self._stop_event = stop_event
         for depth in range(1, self.max_depth + 1):
             # Depth 1 always runs to the end, so there is always a searched move.
-            if depth > 1 and self.time_limit is not None:
-                self._deadline = start + self.time_limit
+            if depth > 1:
+                if stop_event is not None and stop_event.is_set():
+                    break
+                if self.time_limit is not None:
+                    self._deadline = start + self.time_limit
+                elif stop_event is not None:
+                    self._deadline = math.inf  # no time limit, but it can be stopped
             try:
                 move, score = self.search_depth(
                     gs, legal_moves, depth, first_move=best_move
@@ -260,6 +273,7 @@ class Searcher:
                 if time.perf_counter() - start >= self.time_limit / 2:
                     break
 
+        self._stop_event = None
         return SearchResult(
             best_move if best_move is not None else legal_moves[0],
             best_score,
@@ -270,6 +284,12 @@ class Searcher:
             timed_out,
             self.qnodes,
             self.tt_hits,
+        )
+
+    def _out_of_time(self):
+        """The time limit is reached, or another thread asked for a stop."""
+        return time.perf_counter() >= self._deadline or (
+            self._stop_event is not None and self._stop_event.is_set()
         )
 
     def search_depth(self, gs, legal_moves, depth, first_move=None):
@@ -299,7 +319,7 @@ class Searcher:
         recorded in `_best_root_move`.
         """
         self.nodes += 1
-        if self._deadline is not None and time.perf_counter() >= self._deadline:
+        if self._deadline is not None and self._out_of_time():
             raise _SearchTimeoutError
 
         # No legal moves: checkmate or stalemate (decided here, not via flags
@@ -426,7 +446,7 @@ class Searcher:
         """
         self.nodes += 1
         self.qnodes += 1
-        if self._deadline is not None and time.perf_counter() >= self._deadline:
+        if self._deadline is not None and self._out_of_time():
             raise _SearchTimeoutError
 
         if gs.in_check():
