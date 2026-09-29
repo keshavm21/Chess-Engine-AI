@@ -207,6 +207,6 @@ Examples of the identifier rename. The final list gets settled at the start of P
 | 1 | Package layout (`chess_ai/` package) vs. flat snake_case files at the root (the external roadmap's version) | **Package**: cleaner imports, `python -m chess_ai`, no path hacks |
 | 2 | Minimum Python version | **3.10+**. 3.9 is end-of-life, and the macOS system Python 3.9 is the only reason to keep it |
 | 3 | Dev dependencies | **pytest + ruff** now; **python-chess** optional (dev-only, G8) |
-| 4 | License | **MIT** recommended. Since Phase 6 the piece-square tables are original, so nothing ties the project to GPL-3.0 any more |
+| 4 | License | ✅ **Decided in Phase 9: MIT.** Since Phase 6 the piece-square tables are original, so nothing ties the project to GPL-3.0. The piece images come from the tutorial the project started from and are excluded (see the README) |
 | 5 | Default AI time per move and difficulty levels | ✅ **Decided in Phase 5** from measurements: easy 0.5 s (depth cap 2), medium 2 s (default), hard 5 s |
 | 6 | Keep the opening heuristics? | ✅ **Removed in Phase 6**; the piece-square tables and king tables do the work |

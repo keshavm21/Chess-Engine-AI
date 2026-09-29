@@ -336,7 +336,7 @@ docs: record Phase 8 results and update guides
 
 ---
 
-## Phase 9 — Release polish (v1.0)
+## Phase 9 — Release polish (v1.0) ✅
 
 **Goal:** a portfolio-ready repository.
 
@@ -348,12 +348,36 @@ docs: record Phase 8 results and update guides
 | *(Could)* UCI mode | G9 |
 | Mark this plan as complete, then tag `v1.0.0` on `main` | — |
 
-**Planned commits:**
+**Outcome (2026-09-29):**
+- **Tests:** 420 pass (44 new).
+- **Cleanup:**
+  - removed two blocks of commented-out code, a debug `print` and an unused `is_white` parameter;
+  - rewrote tutorial-era comments ("a more better version of an if statemnet", smileys, typos) and added missing class docstrings;
+  - deleted five screenshots of the old interface (about 1 MB).
+  - The syntax trees of `engine.py` and `gui.py` are unchanged apart from docstrings, and the benchmark's node counts and moves are identical.
+- **UCI mode (G9):** `python -m chess_ai.uci`. The search runs in a background thread, and `Searcher.search()` got an optional `stop_event` that ends the search the way the time limit does.
+  - Node counts are unchanged, and timed search speed is within noise.
+  - Checked with an independent UCI client (python-chess, used for verification only). The engine won 6/6 games against a random mover, with castling and a promotion. Its mate and centipawn scores parsed correctly, `go infinite` + `stop` answered at once, and a clocked engine-vs-engine game (10 s + 0.1 s per move) had no time forfeit.
+  - Planted bugs (no output flush, `go infinite` not waiting for `stop`, the stop ignored inside a depth) each fail a test.
+  - Malformed `go` numbers no longer crash it: a float such as `movetime 250.0` is read, and an unreadable value is ignored.
+- **License (H5):** MIT, as decided (decision #4 in 02). The piece images come from the files of Eddie Sharick's *Chess Engine in Python* series, which the project started from. The README credits the series and says the images are not covered by the license.
+- **README (H4):** rewritten from scratch.
+  - Screenshots are rendered from the real `App`, with real searches behind the status line.
+  - It has a Mermaid architecture diagram, an explanation of the search and evaluation, a benchmark table with its environment, and testing and known-limitations sections.
+  - The numbers come from `docs/benchmarks.md` or were re-measured (tactics 22/22 at 2 s per move).
+  - Every link, module and command-line flag in it was checked mechanically.
+
+Notes:
+- **No gameplay GIF:** a headless render cannot show a real mouse, so the README has three screenshots instead. A screen recording can be added later.
+- **Version:** `chess_ai.__version__` is `"1.0.0"`, and the UCI mode reports it.
+
+**Commits:**
 ```
-chore: remove dead code and unused assets
-docs: add LICENSE
-docs: rewrite README for v1.0
-docs: mark improvement plan as complete
+chore: remove dead code, stale comments and unused screenshots
+feat: add a UCI mode for chess GUIs and engine matches
+docs: add the MIT license
+docs: rewrite the README for v1.0
+docs: mark the improvement plan as complete
 ```
 
 ---

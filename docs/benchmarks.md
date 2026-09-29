@@ -252,3 +252,29 @@ At depth 3 the whole gain comes from searching the stored best move first. From 
 **Tactics suite:** 22/22 at 2 s per move (unchanged); 19/22 at fixed depth 3 (unchanged).
 
 Test suite: `pytest` ~55 s (it now also compares searches at depth 4), `pytest -m "not slow"` ~6 s.
+
+---
+
+## Phase 9: v1.0 (cleanup and UCI mode)
+
+| | |
+|---|---|
+| Date | 2026-09-29 |
+| Commands | `python -m chess_ai.benchmark`, `python -m chess_ai.tactics` |
+| Machine / Python | Apple M1, macOS / 3.12.14 |
+
+Neither the cleanup nor the UCI mode's stop hook changes the search: the fixed-depth node counts and moves are **identical** to Phase 7 (1 186 / 2 678 / 4 715 / 24 842 nodes; b1c3 / g8f6 / d4c6 / e2a6). A stoppable search checks the stop request only where it already checks the clock.
+
+| Measurement | Before Phase 9 | After |
+|---|---|---|
+| Fixed depth 3, four positions | 1.82 s, 18 400 nodes/s | 1.82 s, 18 400 nodes/s |
+| 1 s per position, four positions | 19 100 nodes/s | 18 100 and 19 100 nodes/s (two runs; within run-to-run noise) |
+| Perft, start position depth 4 / Kiwipete depth 3 | 391 000 / 437 000 nodes/s | 391 000 / 437 000 nodes/s |
+
+**Tactics suite** at 2 s per move: **22/22** (mate in 1: 5/5, mate in 2: 4/4, mate in 3: 3/3, win material: 6/6, avoid a blunder: 4/4).
+
+**UCI mode**, driven by python-chess's UCI client:
+- 6/6 wins against a random mover;
+- a clocked engine-vs-engine game (10 s + 0.1 s per move) reached the 120-ply cap with about 4 s left on each clock; the longest move took 0.36 s.
+
+Test suite: `pytest` 420 tests, ~65 s; `pytest -m "not slow"` ~20 s.

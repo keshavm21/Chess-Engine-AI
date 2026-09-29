@@ -89,13 +89,13 @@ _DIAGONAL_LINES = _ray_targets(_DIAGONAL_RAYS)
 
 
 class GameState:
+    """A chess position with its history: legal move generation, make and
+    undo, and the game status (checkmate, stalemate, draws by rule)."""
+
     def __init__(self):
-        # this is a 2d representation of the board from White's perspective
-        # the representation is pretty easy:
-        # the first character is about the piece color: b = black, w = white
-        # and the second one is the piece standard notation:
-        # K = King, Q = Queen, R = Rook, B = Bishop, N = Knight, p = pawn
-        # finally, "--" is for empty squares
+        # The board as White sees it: row 0 is rank 8, row 7 is rank 1. A
+        # square holds a colour and a piece ("wK", "bp": K Q R B N, and p for
+        # pawns) or "--" when it is empty.
         self.board = [
             ["bR", "bN", "bB", "bQ", "bK", "bB", "bN", "bR"],  # 8th rank
             ["bp", "bp", "bp", "bp", "bp", "bp", "bp", "bp"],  # 7th rank
@@ -117,8 +117,7 @@ class GameState:
             "Q": self._get_queen_moves,
             "K": self._get_king_moves,
         }
-        # to keep track of the kings locations because:
-        # castling, checks, checkmates and stalemates
+        # The kings' squares, kept up to date for check detection and castling.
         self.white_king_location = (7, 4)
         self.black_king_location = (0, 4)
         self.checkmate = False
@@ -747,16 +746,13 @@ class GameState:
     def get_pseudo_legal_moves(self):
         """All moves for the side to move, ignoring whether they leave the king in check."""
         moves = []
-        for r in range(len(self.board)):  # number of rows
-            # number of columns in a given row
+        for r in range(len(self.board)):
             for c in range(len(self.board[r])):
-                turn = self.board[r][c][0]  # the piece color
+                turn = self.board[r][c][0]  # the piece's colour
                 if (turn == "w" and self.white_to_move) or (
                     turn == "b" and not self.white_to_move
                 ):
-                    piece = self.board[r][c][1]  # the piece type
-                    # generate the all possible valid moves for each piece
-                    # a more better version of an if statemnet
+                    piece = self.board[r][c][1]
                     self._move_generators[piece](r, c, moves)
         return moves
 
@@ -764,12 +760,11 @@ class GameState:
         """Append the moves of the pawn on (r, c) to `moves`."""
         if self.white_to_move:  # white pawn move
             if self.board[r - 1][c] == "--":  # the square in front of a pawn is empty
-                # start square, end square, board
                 self._add_pawn_move((r, c), (r - 1, c), moves)
-                # check if it possible to advance to squares in the first move
+                # two squares forward from the starting rank
                 if r == 6 and self.board[r - 2][c] == "--":
                     moves.append(Move((r, c), (r - 2, c), self.board))
-            if c - 1 >= 0:  # don't go outside the board from the left :)
+            if c - 1 >= 0:  # a capture towards the a-file
                 if (
                     self.board[r - 1][c - 1][0] == "b"
                 ):  # there's an enemy piece to capture
@@ -778,7 +773,7 @@ class GameState:
                     moves.append(
                         Move((r, c), (r - 1, c - 1), self.board, is_en_passant=True)
                     )
-            if c + 1 <= 7:  # don't go outside the board from the right :)
+            if c + 1 <= 7:  # a capture towards the h-file
                 if (
                     self.board[r - 1][c + 1][0] == "b"
                 ):  # there's an enemy piece to capture
@@ -790,12 +785,11 @@ class GameState:
 
         else:  # black pawn move
             if self.board[r + 1][c] == "--":  # the square in front of a pawn is empty
-                # start square, end square, board
                 self._add_pawn_move((r, c), (r + 1, c), moves)
-                # check if it possible to advance to squares in the first move
+                # two squares forward from the starting rank
                 if r == 1 and self.board[r + 2][c] == "--":
                     moves.append(Move((r, c), (r + 2, c), self.board))
-            if c - 1 >= 0:  # don't go outside the board from the left :)
+            if c - 1 >= 0:  # a capture towards the a-file
                 if (
                     self.board[r + 1][c - 1][0] == "w"
                 ):  # there's an enemy piece to capture
@@ -804,7 +798,7 @@ class GameState:
                     moves.append(
                         Move((r, c), (r + 1, c - 1), self.board, is_en_passant=True)
                     )
-            if c + 1 <= 7:  # don't go outside the board from the right :)
+            if c + 1 <= 7:  # a capture towards the h-file
                 if (
                     self.board[r + 1][c + 1][0] == "w"
                 ):  # there's an enemy piece to capture
@@ -824,9 +818,7 @@ class GameState:
 
     def _get_knight_moves(self, r, c, moves):
         """Append the moves of the knight on (r, c) to `moves`."""
-        # the logic here is somehow different than the rook or the bishop
-        # as that the knight is a short range piece
-        # (row, col) representation for the 8 possible moves
+        # (row, col) offsets of the eight knight jumps
         knight_moves = (
             (-1, -2),
             (-1, 2),
@@ -848,7 +840,7 @@ class GameState:
 
     def _get_bishop_moves(self, r, c, moves):
         """Append the moves of the bishop on (r, c) to `moves`."""
-        # (row, col) representation for the 4 diaganol moves
+        # (row, col) steps of the four diagonals
         directions = ((-1, -1), (-1, 1), (1, -1), (1, 1))
         enemy_color = "b" if self.white_to_move else "w"
         for d in directions:
@@ -857,27 +849,19 @@ class GameState:
                 end_col = c + d[1] * i
                 if 0 <= end_row < 8 and 0 <= end_col < 8:  # still on the board
                     end_piece = self.board[end_row][end_col]
-                    if end_piece == "--":
-                        # empty square, so we can reach it and check \
-                        # if we can reach more squares after that
+                    if end_piece == "--":  # empty: the piece can go on
                         moves.append(Move((r, c), (end_row, end_col), self.board))
-                    elif end_piece[0] == enemy_color:
-                        # that's our enemy, so we can still capture
+                    elif end_piece[0] == enemy_color:  # a capture ends the line
                         moves.append(Move((r, c), (end_row, end_col), self.board))
-                        # but if we had to capture, then we can't check for more moves
-                        # in that direction
                         break
-                    else:
-                        # friendly piece in the way, so we can't check that direction anymore
+                    else:  # blocked by an own piece
                         break
-                else:  # we can't go out of the board
+                else:  # the edge of the board
                     break
 
     def _get_rook_moves(self, r, c, moves):
         """Append the moves of the rook on (r, c) to `moves`."""
-        # (row, col) representation
-        # and from the White's perspective, the rook can move:
-        # up, left, down, right
+        # (row, col) steps: up, left, down, right (as White sees the board)
         directions = ((-1, 0), (0, -1), (1, 0), (0, 1))
         enemy_color = "b" if self.white_to_move else "w"
         for d in directions:
@@ -886,26 +870,19 @@ class GameState:
                 end_col = c + d[1] * i
                 if 0 <= end_row < 8 and 0 <= end_col < 8:  # still on the board
                     end_piece = self.board[end_row][end_col]
-                    if end_piece == "--":
-                        # empty square, so we can reach it and check \
-                        # if we can reach more squares after that
+                    if end_piece == "--":  # empty: the piece can go on
                         moves.append(Move((r, c), (end_row, end_col), self.board))
-                    elif end_piece[0] == enemy_color:
-                        # that's our enemy, so we can still capture
+                    elif end_piece[0] == enemy_color:  # a capture ends the line
                         moves.append(Move((r, c), (end_row, end_col), self.board))
-                        # but if we had to capture, then we can't check for more moves
-                        # in that direction
                         break
-                    else:
-                        # friendly piece in the way, so we can't check that direction anymore
+                    else:  # blocked by an own piece
                         break
-                else:  # we can't go out of the board
+                else:  # the edge of the board
                     break
 
     def _get_queen_moves(self, r, c, moves):
         """Append the moves of the queen on (r, c) to `moves`."""
-        # as the queen has the power of both the rook and a bishop
-        # it makes that code a lot easier
+        # a queen moves like a bishop and a rook together
         self._get_bishop_moves(r, c, moves)
         self._get_rook_moves(r, c, moves)
 
@@ -929,15 +906,13 @@ class GameState:
                 end_piece = self.board[end_row][end_col]
                 if end_piece[0] != ally_color:
                     moves.append(Move((r, c), (end_row, end_col), self.board))
-        # self._get_castle_moves(r, c, moves, ally_color)
 
     def _get_castle_moves(self, r, c, moves):
         """Append the legal castling moves of the king on (r, c) to `moves`."""
-        # 1st check if the king is in_check as the king can't escape the check by castling
         if self.is_square_attacked(r, c):
-            return
-        # 2nd check if the squares in between the king and the rook is vacated or not
-        # 3rd check to see if any of those squares are under attack
+            return  # no castling out of check
+        # The squares between king and rook must be empty, and the king may
+        # not pass through an attacked square (checked by the helpers below).
         if (self.white_to_move and self.castling_rights.wks) or (
             not self.white_to_move and self.castling_rights.bks
         ):
@@ -960,8 +935,8 @@ class GameState:
             and self.board[r][c - 2] == "--"
             and self.board[r][c - 3] == "--"
         ):
-            # we need to just check if the squares that the king is moving through is under attack
-            # not the rook's square or the third square on that queen side
+            # Only the squares the king crosses must be safe; the b-file square
+            # the rook passes may be attacked.
             if not self.is_square_attacked(r, c - 1) and not self.is_square_attacked(
                 r, c - 2
             ):
@@ -969,6 +944,9 @@ class GameState:
 
 
 class CastlingRights:
+    """Which castling moves are still allowed: White / Black, king side (ks)
+    and queen side (qs)."""
+
     def __init__(self, wks, bks, wqs, bqs):
         self.wks = wks
         self.bks = bks
@@ -977,6 +955,9 @@ class CastlingRights:
 
 
 class Move:
+    """A move from `start_sq` to `end_sq` (both (row, col)) on `board`, with
+    the pieces involved and flags for en passant, castling and promotion."""
+
     RANKS_TO_ROWS = {"1": 7, "2": 6, "3": 5, "4": 4, "5": 3, "6": 2, "7": 1, "8": 0}
 
     ROWS_TO_RANKS = {v: k for k, v in RANKS_TO_ROWS.items()}
@@ -999,13 +980,13 @@ class Move:
         self.piece_moved = board[self.start_row][self.start_col]
         self.piece_captured = board[self.end_row][self.end_col]
 
-        # enpassant move
+        # en passant: the captured pawn is not on the target square
         self.is_en_passant = is_en_passant
         if self.is_en_passant:
             self.piece_captured = "wp" if self.piece_moved == "bp" else "bp"
 
-        # pawn promotion move: promotion_piece is "Q", "R", "B" or "N" (a queen
-        # unless told otherwise, e.g. for a move built from two GUI clicks)
+        # pawn promotion: promotion_piece is "Q", "R", "B" or "N" (a queen
+        # unless told otherwise)
         self.is_promotion = (self.piece_moved == "wp" and self.end_row == 0) or (
             self.piece_moved == "bp" and self.end_row == 7
         )
@@ -1017,14 +998,13 @@ class Move:
         # see if the move was a capture move or not
         self.is_capture = self.piece_captured != "--"
 
-        # a unique id for each move in the range of 0 and 7777
+        # a unique id for the start and end squares, from 0 to 7777
         self.move_id = (
             self.start_row * 1000
             + self.start_col * 100
             + self.end_row * 10
             + self.end_col
         )
-        # print(self.move_id) # for debugging
 
     def __eq__(self, other):
         """Moves are equal when they have the same start and end squares and,
@@ -1045,10 +1025,12 @@ class Move:
         )
 
     def square_name(self, r, c):
+        """The name of square (r, c), e.g. "e4"."""
         return self.COLS_TO_FILES[c] + self.ROWS_TO_RANKS[r]
 
     def __str__(self):
-        # the castle move
+        """A short notation such as "Nf3", "exd5" or "e8=Q" (no check marks or
+        disambiguation, which need the position: see GameState.san)."""
         if self.is_castle:
             return "O-O" if self.end_col == 6 else "O-O-O"
         end_square = self.square_name(self.end_row, self.end_col)
@@ -1061,8 +1043,7 @@ class Move:
             if self.is_promotion:
                 move_string += "=" + self.promotion_piece
             return move_string
-        # other piece moves, captures (without check marks or disambiguation,
-        # which need the position: see GameState.san)
+        # other pieces
         move_string = self.piece_moved[1]
         if self.is_capture:
             move_string += "x"

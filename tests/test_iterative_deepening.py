@@ -1,5 +1,6 @@
 """Tests for iterative deepening and the time limit (search.Searcher)."""
 
+import threading
 import time
 
 import pytest
@@ -128,3 +129,53 @@ def test_easy_preset_respects_its_depth_cap_and_time():
     assert result.depth <= easy.max_depth
     assert result.elapsed < easy.time_limit + 0.35
     assert is_legal(gs, result.move)
+
+
+class StopAfter:
+    """Behaves like a threading.Event that becomes set after `checks` checks,
+    so a stop in the middle of a search needs no timing."""
+
+    def __init__(self, checks):
+        self.checks = checks
+
+    def is_set(self):
+        self.checks -= 1
+        return self.checks < 0
+
+
+def test_a_stop_request_ends_the_search_like_the_time_limit(state_snapshot):
+    """The UCI mode's "stop": the move of the last completed depth is played
+    and the position is restored. Depths 2 and 3 take about 1 150 checks, so
+    a stop after 3 000 checks lands inside depth 4."""
+    gs = GameState.from_fen(START)
+    before = state_snapshot(gs)
+    result = search.Searcher(max_depth=4).search(gs, stop_event=StopAfter(3000))
+    assert result.timed_out
+    assert result.depth == 3
+    assert is_legal(gs, result.move)
+    assert state_snapshot(gs) == before
+
+
+def test_a_stop_before_the_search_still_completes_depth_one():
+    stop = threading.Event()
+    stop.set()
+    result = search.Searcher(max_depth=5).search(
+        GameState.from_fen(START), stop_event=stop
+    )
+    assert result.depth == 1
+    assert not result.timed_out  # depth 2 was never started
+
+
+def test_an_unset_stop_event_changes_nothing():
+    """A stoppable search checks the event at every node, but finds exactly
+    the same move, score and node count."""
+    plain = search.Searcher(max_depth=3).search(GameState.from_fen(START))
+    stoppable = search.Searcher(max_depth=3).search(
+        GameState.from_fen(START), stop_event=threading.Event()
+    )
+    assert (plain.move, plain.score, plain.depth, plain.nodes) == (
+        stoppable.move,
+        stoppable.score,
+        stoppable.depth,
+        stoppable.nodes,
+    )

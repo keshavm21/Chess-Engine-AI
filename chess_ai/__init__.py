@@ -11,3 +11,5 @@ if sys.version_info < (3, 10):
         "Use the project's virtual environment: run `deactivate` if needed, "
         "then `source venv/bin/activate` (or run `./venv/bin/python -m chess_ai`)."
     )
+
+__version__ = "1.0.0"
