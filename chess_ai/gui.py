@@ -1,15 +1,26 @@
 """pygame front end: draws the game, handles input and runs the AI.
 
-The AI searches in a separate process so the window stays responsive.
+The window is an App that is in exactly one state at a time:
+
+- HUMAN_TURN: the player picks a move (a piece, then a square it can reach),
+- AI_THINKING: the AI searches in a separate process, so the window stays
+  responsive,
+- ANIMATING: the last move slides into place,
+- GAME_OVER: checkmate, stalemate or a draw by rule.
+
+Every change of position (a move, an undo, a new game) goes through
+App._position_changed(), which decides the next state.
 """
 
+import math
 import os
+import time
 from multiprocessing import Process, Queue
 
 import pygame as p
 
 from chess_ai import search
-from chess_ai.engine import GameState, Move
+from chess_ai.engine import GameState
 
 # AI strength: one of search.DIFFICULTIES (a selector comes with Phase 8).
 AI_DIFFICULTY = search.DEFAULT_DIFFICULTY
@@ -26,10 +37,18 @@ MOVE_LOG_PANEL_HEIGHT = BOARD_HEIGHT
 # the chess board is 8x8 :)
 DIMENSION = 8
 SQ_SIZE = BOARD_HEIGHT // DIMENSION
-# for animation later on
-MAX_FPS = 15
+BOARD_LEFT = EVAL_BAR_WIDTH  # the board is drawn right of the evaluation bar
+PANEL_LEFT = BOARD_LEFT + BOARD_WIDTH
+FPS = 30
+ANIMATION_FPS = 60  # while a piece slides
 IMAGES = {}
 BOARD_COLORS = (p.Color("white"), p.Color("gray"))  # light, dark squares
+
+# App states
+HUMAN_TURN = "human turn"
+AI_THINKING = "AI thinking"
+ANIMATING = "animating"
+GAME_OVER = "game over"
 
 
 def load_images():
@@ -38,6 +57,26 @@ def load_images():
     for piece in pieces:
         img = os.path.join(IMAGE_PATH, piece + ".png")
         IMAGES[piece] = p.transform.scale(p.image.load(img), (SQ_SIZE, SQ_SIZE))
+
+
+def square_at(pos):
+    """The board square (row, col) under the screen position `pos`, or None."""
+    x, y = pos[0] - BOARD_LEFT, pos[1]
+    if not (0 <= x < BOARD_WIDTH and 0 <= y < BOARD_HEIGHT):
+        return None
+    return y // SQ_SIZE, x // SQ_SIZE
+
+
+def square_rect(square):
+    """The screen rectangle of the board square (row, col)."""
+    row, col = square
+    return p.Rect(BOARD_LEFT + col * SQ_SIZE, row * SQ_SIZE, SQ_SIZE, SQ_SIZE)
+
+
+def animation_seconds(move):
+    """How long `move` takes to slide into place: longer moves take longer."""
+    distance = math.hypot(move.end_row - move.start_row, move.end_col - move.start_col)
+    return 0.1 + 0.04 * distance
 
 
 def take_back_move(gs, white_is_human, black_is_human):
@@ -51,6 +90,16 @@ def take_back_move(gs, white_is_human, black_is_human):
     ai_to_move = not (white_is_human if gs.white_to_move else black_is_human)
     if ai_to_move and (white_is_human or black_is_human) and gs.move_log:
         gs.undo_move()
+
+
+def game_over_text(gs):
+    """The result of a finished game, e.g. "White wins by checkmate"."""
+    if gs.checkmate:
+        winner = "Black" if gs.white_to_move else "White"
+        return f"{winner} wins by checkmate"
+    if gs.stalemate:
+        return "Stalemate"
+    return f"Draw by {gs.draw_reason}"
 
 
 def draw_evaluation_bar(screen, evaluation):
@@ -135,286 +184,6 @@ def draw_evaluation_bar(screen, evaluation):
     screen.blit(text_surface, text_rect)
 
 
-def main():
-    """Run the game loop: handle input, run the AI, and draw the game."""
-    p.init()
-    p.display.set_caption("Chess with Evaluation")
-    screen = p.display.set_mode(
-        (EVAL_BAR_WIDTH + BOARD_WIDTH + MOVE_LOG_PANEL_WIDTH, BOARD_HEIGHT)
-    )
-    clock = p.time.Clock()
-    screen.fill(p.Color("white"))
-    move_log_font = p.font.SysFont("Arial", 20, False, False)
-    gs = GameState()
-    legal_moves = gs.get_legal_moves()
-    # move_made: a flag variable that keep tracks if a valid move has been made
-    # so we can generate another new set of valid moves
-    move_made = False
-    animate = False  # a flag to know when to use the animation function
-    # we now load the images once before the (while true) loop
-    load_images()
-    running = True
-    selected_square = ()  # simply to keep track of the last click for the user
-    # player_clicks: is a list to keep track of player clicks
-    # to act like a vector to move the piece from one square to another
-    player_clicks = []
-    game_over = False
-    # if a human is playing, then this will be true
-    # and if an AI is playing it'll be false
-    white_is_human = True  # for white side
-    black_is_human = False  # for black side - AI
-    ai_thinking = False
-    move_finder_process = None
-    move_undone = False
-    current_evaluation = 0.0  # Track current position evaluation
-
-    while running:
-        human_turn = (gs.white_to_move and white_is_human) or (
-            not gs.white_to_move and black_is_human
-        )
-        for e in p.event.get():
-            # handling the exit condition
-            if e.type == p.QUIT:
-                running = False
-            # handle the user mouse input, simply the idea of click and go
-            elif e.type == p.MOUSEBUTTONDOWN:
-                if not game_over:
-                    location = p.mouse.get_pos()  # like its (x, y) location
-                    col = (
-                        location[0] - EVAL_BAR_WIDTH
-                    ) // SQ_SIZE  # ADJUSTED for eval bar
-                    row = location[1] // SQ_SIZE
-                    # the user clicks the same square twice or clicked on the move log or eval bar
-                    if selected_square == (row, col) or col >= 8 or col < 0:
-                        selected_square = ()  # so unselect that square
-                        player_clicks = []  # reset that also
-                    else:
-                        selected_square = (row, col)
-                        player_clicks.append(
-                            selected_square
-                        )  # append for both 1st and 2nd clicks
-                    if (
-                        len(player_clicks) == 2 and human_turn
-                    ):  # after the second click, we need to move
-                        # A promotion built from two clicks defaults to a queen,
-                        # so it matches exactly one of the four promotion moves.
-                        move = Move(player_clicks[0], player_clicks[1], gs.board)
-                        for legal_move in legal_moves:
-                            if move == legal_move:
-                                gs.make_move(legal_move)
-                                move_made = True
-                                animate = True
-                                selected_square = ()  # reset for the next turn
-                                player_clicks = []  # reset for the next turn
-                                break
-                        if not move_made:
-                            player_clicks = [selected_square]
-            # handling the key presses like ctrl+z, etc..
-            elif e.type == p.KEYDOWN:
-                if e.key == p.K_z:  # undo: back to the human's previous turn
-                    take_back_move(gs, white_is_human, black_is_human)
-                    selected_square = ()
-                    player_clicks = []
-                    move_made = True
-                    animate = False
-                    game_over = False
-                    if ai_thinking:
-                        move_finder_process.terminate()
-                        ai_thinking = False
-                    move_undone = True
-                if e.key == p.K_r:  # reset the board when r is pressed
-                    gs = GameState()
-                    legal_moves = gs.get_legal_moves()
-                    selected_square = ()
-                    player_clicks = []
-                    move_made = False
-                    animate = False
-                    game_over = False
-                    running = True
-                    if ai_thinking:
-                        move_finder_process.terminate()
-                        ai_thinking = False
-                    move_undone = False
-                    current_evaluation = 0.0
-
-        # handle the AI move finder
-        if (
-            not game_over
-            and not human_turn
-            and not move_undone
-            and not move_made
-            and not animate
-        ):
-            if not ai_thinking:
-                ai_thinking = True
-                print("AI thinking...")
-                return_queue = Queue()  # is used to pass data between threads
-                move_finder_process = Process(
-                    target=search.find_best_move,
-                    args=(gs, legal_moves, return_queue),
-                    kwargs={
-                        "max_depth": search.DIFFICULTIES[AI_DIFFICULTY].max_depth,
-                        "time_limit": search.DIFFICULTIES[AI_DIFFICULTY].time_limit,
-                    },
-                )
-                move_finder_process.start()
-
-            # Check if the process has finished
-            if not move_finder_process.is_alive():
-                print("AI done thinking")
-                ai_move = return_queue.get()
-                if ai_move is None:
-                    ai_move = search.find_random_move(legal_moves)
-                gs.make_move(ai_move)
-                move_made = True
-                animate = True
-                ai_thinking = False
-
-        # generate the new set of valid moves when a user makes a valid move
-        if move_made:
-            if animate:
-                animate_move(gs.move_log[-1], screen, gs.board, clock)
-            legal_moves = gs.get_legal_moves()
-            gs.update_game_status(legal_moves)
-            # The engine's own evaluation (captures played out), in pawns.
-            current_evaluation = search.evaluate_position(gs, legal_moves) / 100
-            move_made = False
-            animate = False
-            move_undone = False
-
-        draw_game_state(
-            screen, gs, legal_moves, selected_square, move_log_font, current_evaluation
-        )
-
-        # check if the game has ended: checkmate, stalemate or a draw by rule
-        if gs.checkmate or gs.stalemate or gs.draw_reason:
-            game_over = True
-            if gs.checkmate:
-                winner = "Black" if gs.white_to_move else "White"
-                text = f"{winner} wins by checkmate"
-            elif gs.stalemate:
-                text = "Stalemate"
-            else:
-                text = f"Draw by {gs.draw_reason}"
-            draw_end_game_text(screen, text)
-
-        clock.tick(MAX_FPS)
-        p.display.flip()
-
-
-def draw_game_state(
-    screen, gs, legal_moves, selected_square, move_log_font, evaluation
-):
-    """Draw the evaluation bar, board, highlights, pieces and move log."""
-    # Draw evaluation bar first (leftmost)
-    draw_evaluation_bar(screen, evaluation)
-
-    # Draw board and pieces (shifted right by EVAL_BAR_WIDTH)
-    draw_board(screen)  # draw the squares on the board
-    highlight_squares(screen, gs, legal_moves, selected_square)
-    draw_pieces(screen, gs.board)  # draw the pieces on the top of the board
-
-    # Draw move log (rightmost)
-    draw_move_log(screen, gs, move_log_font)
-
-
-def draw_board(screen):
-    for r in range(DIMENSION):
-        for c in range(DIMENSION):
-            color = BOARD_COLORS[(r + c) % 2]
-            # Shift board right by EVAL_BAR_WIDTH
-            p.draw.rect(
-                screen,
-                color,
-                p.Rect(EVAL_BAR_WIDTH + c * SQ_SIZE, r * SQ_SIZE, SQ_SIZE, SQ_SIZE),
-            )
-
-
-def highlight_squares(screen, gs, legal_moves, selected_square):
-    """Highlight the selected square and the legal destinations of its piece."""
-    if selected_square != ():
-        r, c = selected_square
-        # make sure that each user can use highlighting ability for its own pieces
-        if gs.board[r][c][0] == ("w" if gs.white_to_move else "b"):
-            # 1. highlight the selected square
-            s = p.Surface((SQ_SIZE, SQ_SIZE))
-            s.set_alpha(
-                100
-            )  # zero value is full transparent and 255 means no transparency
-            s.fill(p.Color("blue"))
-            screen.blit(s, (EVAL_BAR_WIDTH + c * SQ_SIZE, r * SQ_SIZE))
-            # 2. highlight moves from that selected square
-            s.fill(p.Color("yellow"))
-            for move in legal_moves:
-                if (
-                    move.start_row == r and move.start_col == c
-                ):  # then those are the valid moves for that particular piece
-                    screen.blit(
-                        s,
-                        (
-                            EVAL_BAR_WIDTH + move.end_col * SQ_SIZE,
-                            move.end_row * SQ_SIZE,
-                        ),
-                    )
-
-
-def draw_pieces(screen, board):
-    for r in range(DIMENSION):
-        for c in range(DIMENSION):
-            piece = board[r][c]
-            if piece != "--":  # it's really a piece and not an empty square
-                screen.blit(
-                    IMAGES[piece],
-                    p.Rect(EVAL_BAR_WIDTH + c * SQ_SIZE, r * SQ_SIZE, SQ_SIZE, SQ_SIZE),
-                )
-
-
-def animate_move(move, screen, board, clock):
-    """Animate `move` sliding from its start square to its end square."""
-    d_row = move.end_row - move.start_row
-    d_col = move.end_col - move.start_col
-    frames_per_square = 10  # frames to move one square
-    frame_count = (abs(d_row) + abs(d_col)) * frames_per_square
-    for frame in range(frame_count + 1):
-        r, c = (
-            move.start_row + d_row * frame / frame_count,
-            move.start_col + d_col * frame / frame_count,
-        )
-        draw_board(screen)
-        draw_pieces(screen, board)
-        # erase the move from its ending square
-        color = BOARD_COLORS[(move.end_row + move.end_col) % 2]
-        end_square = p.Rect(
-            EVAL_BAR_WIDTH + move.end_col * SQ_SIZE,
-            move.end_row * SQ_SIZE,
-            SQ_SIZE,
-            SQ_SIZE,
-        )
-        p.draw.rect(screen, color, end_square)
-        # draw the captured piece back onto the top of the rect
-        if move.piece_captured != "--":
-            if move.is_en_passant:
-                en_passant_row = (
-                    (move.end_row + 1)
-                    if move.piece_captured[0] == "b"
-                    else (move.end_row - 1)
-                )
-                end_square = p.Rect(
-                    EVAL_BAR_WIDTH + move.end_col * SQ_SIZE,
-                    en_passant_row * SQ_SIZE,
-                    SQ_SIZE,
-                    SQ_SIZE,
-                )
-            screen.blit(IMAGES[move.piece_captured], end_square)
-        # draw the moving piece
-        screen.blit(
-            IMAGES[move.piece_moved],
-            p.Rect(EVAL_BAR_WIDTH + c * SQ_SIZE, r * SQ_SIZE, SQ_SIZE, SQ_SIZE),
-        )
-        p.display.flip()
-        clock.tick(120)
-
-
 def draw_end_game_text(screen, text):
     font = p.font.SysFont("Helvetica", 32, True, False)
     text_object = font.render(text, 0, p.Color("Gray"))
@@ -426,9 +195,7 @@ def draw_end_game_text(screen, text):
 
 
 def draw_move_log(screen, gs, font):
-    move_log_rect = p.Rect(
-        EVAL_BAR_WIDTH + BOARD_WIDTH, 0, MOVE_LOG_PANEL_WIDTH, MOVE_LOG_PANEL_HEIGHT
-    )
+    move_log_rect = p.Rect(PANEL_LEFT, 0, MOVE_LOG_PANEL_WIDTH, MOVE_LOG_PANEL_HEIGHT)
     p.draw.rect(screen, p.Color("black"), move_log_rect)
     move_log = gs.move_log
     move_texts = []
@@ -450,6 +217,229 @@ def draw_move_log(screen, gs, font):
         text_location = move_log_rect.move(padding, text_y)
         screen.blit(text_object, text_location)
         text_y += text_object.get_height() + line_spacing
+
+
+class App:
+    """The game window: the game, the AI's search process and the display."""
+
+    def __init__(self):
+        p.init()
+        p.display.set_caption("Chess with Evaluation")
+        self.screen = p.display.set_mode(
+            (PANEL_LEFT + MOVE_LOG_PANEL_WIDTH, BOARD_HEIGHT)
+        )
+        self.clock = p.time.Clock()
+        self.move_log_font = p.font.SysFont("Arial", 20, False, False)
+        load_images()
+        # Who plays which side: a human or the AI.
+        self.white_is_human = True
+        self.black_is_human = False
+        self.animate = True  # slide moves into place
+        self.running = True
+        self._ai_process = None
+        self._ai_queue = None
+        self.new_game()
+
+    # ---------- Game flow ----------
+
+    def new_game(self):
+        """Start again from the initial position."""
+        self._stop_ai()
+        self.gs = GameState()
+        self.selected = None  # the square of the piece the human picked
+        self._position_changed()
+
+    def undo(self):
+        """Take back the last move; against the AI, back to the human's turn."""
+        self._stop_ai()
+        take_back_move(self.gs, self.white_is_human, self.black_is_human)
+        self.selected = None
+        self._position_changed()
+
+    def _human_to_move(self):
+        return self.white_is_human if self.gs.white_to_move else self.black_is_human
+
+    def _position_changed(self):
+        """Refresh what depends on the position and decide what happens next:
+        the game is over, the human moves, or the AI starts thinking."""
+        self.animation = None
+        self.legal_moves = self.gs.get_legal_moves()
+        self.gs.update_game_status(self.legal_moves)
+        # The engine's own evaluation (captures played out), in pawns.
+        self.evaluation = search.evaluate_position(self.gs, self.legal_moves) / 100
+        if self.gs.checkmate or self.gs.stalemate or self.gs.draw_reason:
+            self.state = GAME_OVER
+        elif self._human_to_move():
+            self.state = HUMAN_TURN
+        else:
+            self._start_ai()
+
+    def _play(self, move):
+        """Play a legal move for the side to move, then let it slide into place."""
+        self.gs.make_move(move)
+        self.selected = None
+        if self.animate:
+            self.animation = (move, time.perf_counter())
+            self.state = ANIMATING
+        else:
+            self._position_changed()
+
+    def _moves_between(self, start, end):
+        """The legal moves from square `start` to square `end` (four for a
+        promotion, one per piece)."""
+        return [
+            move
+            for move in self.legal_moves
+            if (move.start_row, move.start_col) == start
+            and (move.end_row, move.end_col) == end
+        ]
+
+    # ---------- AI ----------
+
+    def _start_ai(self):
+        print("AI thinking...")
+        level = search.DIFFICULTIES[AI_DIFFICULTY]
+        self._ai_queue = Queue()
+        self._ai_process = Process(
+            target=search.find_best_move,
+            args=(self.gs, self.legal_moves, self._ai_queue),
+            kwargs={"max_depth": level.max_depth, "time_limit": level.time_limit},
+        )
+        self._ai_process.start()
+        self.state = AI_THINKING
+
+    def _poll_ai(self):
+        """Play the AI's move once its search process has finished."""
+        if self._ai_process.is_alive():
+            return
+        print("AI done thinking")
+        move = self._ai_queue.get()
+        self._ai_process = self._ai_queue = None
+        if move is None:
+            move = search.find_random_move(self.legal_moves)
+        self._play(move)
+
+    def _stop_ai(self):
+        """Stop the AI's search, if one is running."""
+        if self._ai_process is not None and self._ai_process.is_alive():
+            self._ai_process.terminate()
+        self._ai_process = self._ai_queue = None
+
+    # ---------- Input ----------
+
+    def run(self):
+        """The main loop: handle input, advance the game and draw it, until
+        the window is closed."""
+        while self.running:
+            for event in p.event.get():
+                self.handle_event(event)
+            self.update()
+            self.draw()
+            p.display.flip()
+            self.clock.tick(ANIMATION_FPS if self.state == ANIMATING else FPS)
+
+    def handle_event(self, event):
+        if event.type == p.QUIT:
+            self.running = False
+        elif event.type == p.MOUSEBUTTONDOWN and event.button == 1:
+            self._on_press(event.pos)
+        elif event.type == p.KEYDOWN:
+            if event.key == p.K_z:  # undo: back to the human's previous turn
+                self.undo()
+            elif event.key == p.K_r:  # reset the board
+                self.new_game()
+
+    def _on_press(self, pos):
+        """Click a piece, then a square it can move to."""
+        if self.state != HUMAN_TURN:
+            return
+        square = square_at(pos)
+        if square is None or square == self.selected:
+            self.selected = None  # a click off the board or on the picked piece
+            return
+        if self.selected is not None:
+            moves = self._moves_between(self.selected, square)
+            if moves:
+                # Until there is a promotion picker, a pawn becomes a queen.
+                self._play(next(m for m in moves if m.promotion_piece in (None, "Q")))
+                return
+        r, c = square
+        own_color = "w" if self.gs.white_to_move else "b"
+        self.selected = square if self.gs.board[r][c][0] == own_color else None
+
+    def update(self):
+        """Advance what moves on by itself: the AI's search and animations."""
+        if self.state == AI_THINKING:
+            self._poll_ai()
+        elif self.state == ANIMATING:
+            move, started = self.animation
+            if time.perf_counter() - started >= animation_seconds(move):
+                self._position_changed()
+
+    # ---------- Drawing ----------
+
+    def draw(self):
+        draw_evaluation_bar(self.screen, self.evaluation)
+        self._draw_board()
+        self._draw_highlights()
+        self._draw_pieces()
+        if self.state == ANIMATING:
+            self._draw_animation()
+        draw_move_log(self.screen, self.gs, self.move_log_font)
+        if self.state == GAME_OVER:
+            draw_end_game_text(self.screen, game_over_text(self.gs))
+
+    def _draw_board(self):
+        for r in range(DIMENSION):
+            for c in range(DIMENSION):
+                p.draw.rect(self.screen, BOARD_COLORS[(r + c) % 2], square_rect((r, c)))
+
+    def _draw_highlights(self):
+        """Highlight the picked piece and the squares it can move to."""
+        if self.selected is None:
+            return
+        s = p.Surface((SQ_SIZE, SQ_SIZE))
+        s.set_alpha(100)  # zero value is full transparent and 255 means no transparency
+        s.fill(p.Color("blue"))
+        self.screen.blit(s, square_rect(self.selected))
+        s.fill(p.Color("yellow"))
+        for move in self.legal_moves:
+            if (move.start_row, move.start_col) == self.selected:
+                self.screen.blit(s, square_rect((move.end_row, move.end_col)))
+
+    def _draw_pieces(self):
+        # While a move slides into place, its target square shows what stood
+        # there before (drawn by _draw_animation).
+        hidden = None
+        if self.state == ANIMATING:
+            move = self.animation[0]
+            hidden = (move.end_row, move.end_col)
+        for r, row in enumerate(self.gs.board):
+            for c, piece in enumerate(row):
+                if piece != "--" and (r, c) != hidden:
+                    self.screen.blit(IMAGES[piece], square_rect((r, c)))
+
+    def _draw_animation(self):
+        move, started = self.animation
+        progress = min(1.0, (time.perf_counter() - started) / animation_seconds(move))
+        # the captured piece stays on its square until the moving piece arrives
+        if move.piece_captured != "--":
+            captured_square = (
+                (move.start_row, move.end_col)
+                if move.is_en_passant
+                else (move.end_row, move.end_col)
+            )
+            self.screen.blit(IMAGES[move.piece_captured], square_rect(captured_square))
+        start = square_rect((move.start_row, move.start_col))
+        end = square_rect((move.end_row, move.end_col))
+        x = start.x + (end.x - start.x) * progress
+        y = start.y + (end.y - start.y) * progress
+        self.screen.blit(IMAGES[move.piece_moved], (x, y))
+
+
+def main():
+    """Open the game window and run it until it is closed."""
+    App().run()
 
 
 if __name__ == "__main__":

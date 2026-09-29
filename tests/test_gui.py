@@ -1,6 +1,7 @@
 """Tests for GUI logic that can run without a window (pygame's dummy driver)."""
 
 import os
+import queue
 
 import pytest
 
@@ -88,6 +89,152 @@ def test_end_game_text_is_centred_on_the_board():
     board_centre = (gui.EVAL_BAR_WIDTH + gui.BOARD_WIDTH // 2, gui.BOARD_HEIGHT // 2)
     assert abs(text_rect.centerx - board_centre[0]) <= 1
     assert abs(text_rect.centery - board_centre[1]) <= 1
+
+
+@pytest.fixture
+def app():
+    """The game window on pygame's dummy video driver. Both sides are human,
+    so no AI process starts, and moves are not animated."""
+    window = gui.App()
+    window.white_is_human = window.black_is_human = True
+    window.animate = False
+    yield window
+    pygame.quit()
+
+
+@pytest.fixture
+def ai_processes(monkeypatch):
+    """Replaces the AI's search process with FakeAIProcess; returns the list
+    of processes the window starts."""
+    started = []
+
+    class FakeAIProcess:
+        """Runs the real search target, but only when the test calls answer()."""
+
+        def __init__(self, target=None, args=(), kwargs=None, daemon=None):
+            self.target, self.args, self.kwargs = target, args, kwargs or {}
+            self.daemon = daemon
+            self.alive = self.terminated = False
+            started.append(self)
+
+        def start(self):
+            self.alive = True
+
+        def is_alive(self):
+            return self.alive
+
+        def terminate(self):
+            self.alive, self.terminated = False, True
+
+        def join(self, timeout=None):
+            pass
+
+        def answer(self):
+            """Search (1 ply, to be quick) and end, as the real process does."""
+            self.target(
+                *self.args, **{**self.kwargs, "max_depth": 1, "time_limit": None}
+            )
+            self.alive = False
+
+    monkeypatch.setattr(gui, "Process", FakeAIProcess)
+    monkeypatch.setattr(gui, "Queue", queue.Queue)
+    return started
+
+
+def centre(name):
+    """Screen position of the centre of square `name`, White at the bottom."""
+    row, col = 8 - int(name[1]), ord(name[0]) - ord("a")
+    return (
+        gui.EVAL_BAR_WIDTH + col * gui.SQ_SIZE + gui.SQ_SIZE // 2,
+        row * gui.SQ_SIZE + gui.SQ_SIZE // 2,
+    )
+
+
+def click(app, name):
+    app.handle_event(
+        pygame.event.Event(pygame.MOUSEBUTTONDOWN, pos=centre(name), button=1)
+    )
+
+
+def press(app, key):
+    app.handle_event(pygame.event.Event(pygame.KEYDOWN, key=key))
+
+
+def coordinates(gs):
+    return [move.coordinate_notation() for move in gs.move_log]
+
+
+class TestApp:
+    def test_a_piece_then_a_square_it_can_reach_plays_the_move(self, app):
+        click(app, "e2")
+        click(app, "e4")
+        assert coordinates(app.gs) == ["e2e4"]
+        assert app.state == gui.HUMAN_TURN  # Black, also human, to move
+
+    def test_picking_a_piece(self, app):
+        click(app, "e2")
+        assert app.selected == (6, 4)
+        click(app, "d2")  # another own piece
+        assert app.selected == (6, 3)
+        click(app, "d2")  # the same piece again
+        assert app.selected is None
+        click(app, "e7")  # an opponent's piece
+        assert app.selected is None
+        click(app, "e2")
+        click(app, "e5")  # a square the pawn cannot reach
+        assert app.selected is None
+        assert not app.gs.move_log
+
+    def test_a_move_slides_into_place_before_the_game_goes_on(self, app):
+        app.animate = True
+        click(app, "e2")
+        click(app, "e4")
+        assert app.state == gui.ANIMATING
+        click(app, "e7")  # input waits for the animation
+        assert app.selected is None
+        move, started = app.animation
+        app.animation = (move, started - gui.animation_seconds(move))  # time is up
+        app.update()
+        assert app.state == gui.HUMAN_TURN
+
+    def test_the_ai_replies_from_its_own_process(self, app, ai_processes):
+        app.black_is_human = False
+        click(app, "e2")
+        click(app, "e4")
+        assert app.state == gui.AI_THINKING
+        (process,) = ai_processes
+        app.update()
+        assert app.state == gui.AI_THINKING  # still searching
+        process.answer()
+        app.update()
+        assert len(app.gs.move_log) == 2
+        assert app.state == gui.HUMAN_TURN
+
+    def test_undo_while_the_ai_is_thinking_stops_it(self, app, ai_processes):
+        app.black_is_human = False
+        click(app, "e2")
+        click(app, "e4")
+        press(app, pygame.K_z)
+        assert ai_processes[0].terminated
+        assert not app.gs.move_log
+        assert app.state == gui.HUMAN_TURN
+
+    def test_a_new_game_while_the_ai_is_thinking_stops_it(self, app, ai_processes):
+        app.black_is_human = False
+        click(app, "e2")
+        click(app, "e4")
+        press(app, pygame.K_r)
+        assert ai_processes[0].terminated
+        assert not app.gs.move_log
+        assert app.state == gui.HUMAN_TURN
+
+    def test_game_over(self, app, legal_move):
+        for move in ("f2f3", "e7e5", "g2g4", "d8h4"):
+            app._play(legal_move(app.gs, move))
+        assert app.state == gui.GAME_OVER
+        assert gui.game_over_text(app.gs) == "Black wins by checkmate"
+        click(app, "e2")  # no more moves
+        assert app.selected is None
 
 
 def play_scripted_game(monkeypatch, moves, max_frames=600):
