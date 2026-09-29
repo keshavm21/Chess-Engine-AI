@@ -2,7 +2,8 @@
 
 The window is an App that is in exactly one state at a time:
 
-- HUMAN_TURN: the player picks a move (a piece, then a square it can reach),
+- HUMAN_TURN: the player picks a move: a piece, then a square it can reach
+  (with two clicks, or by dragging the piece there),
 - PROMOTING: the player picks the piece a pawn promotes to,
 - AI_THINKING: the AI searches in a separate process, so the window stays
   responsive,
@@ -72,6 +73,11 @@ LOG_CAPACITY = (LOG_BOTTOM - LOG_TOP) // LOG_LINE_HEIGHT  # lines shown at once
 SIDE_LABEL_Y, SIDE_BUTTONS_Y = 344, 362
 LEVEL_LABEL_Y, LEVEL_BUTTONS_Y = 396, 414
 ACTION_BUTTONS_Y = 452
+HELP_Y = 484  # two lines of help below the buttons
+HELP_LINES = (
+    "Click or drag a piece to move it. Esc cancels.",
+    "Mouse wheel: scroll through the moves.",
+)
 BUTTON_HEIGHT = 28
 
 
@@ -280,6 +286,8 @@ class App:
             text: panel_font.render(text, True, MUTED_TEXT)
             for text in ("New game as", "AI level (from its next move)")
         }
+        help_font = p.font.SysFont("Arial", 12)
+        self.help_labels = [help_font.render(t, True, MUTED_TEXT) for t in HELP_LINES]
         button_font = p.font.SysFont("Arial", 13)
         self.button_labels = {
             name: button_font.render(label, True, TEXT_COLOR)
@@ -343,6 +351,9 @@ class App:
         """Forget a half-entered move."""
         self.selected = None  # the square of the piece the human picked
         self.promotion_moves = []  # the moves the promotion picker offers
+        # While the mouse button is held on a piece: (its square, whether it
+        # was already picked); the piece follows the mouse.
+        self.drag = None
 
     def _human_to_move(self):
         return self.white_is_human if self.gs.white_to_move else self.black_is_human
@@ -435,7 +446,8 @@ class App:
                 self.update()
                 self.draw()
                 p.display.flip()
-                self.clock.tick(ANIMATION_FPS if self.state == ANIMATING else FPS)
+                smooth = self.state == ANIMATING or self.drag is not None
+                self.clock.tick(ANIMATION_FPS if smooth else FPS)
         finally:
             self.close()
 
@@ -451,6 +463,8 @@ class App:
             self._scroll_log(event.y)
         elif event.type == p.MOUSEBUTTONDOWN and event.button == 1:
             self._on_press(event.pos)
+        elif event.type == p.MOUSEBUTTONUP and event.button == 1:
+            self._on_release(event.pos)
         elif event.type == p.KEYDOWN:
             if event.key == p.K_z:  # undo: back to the human's previous turn
                 self.undo()
@@ -497,7 +511,8 @@ class App:
             self.flipped = not self.flipped
 
     def _on_press(self, pos):
-        """Click a piece, then a square it can move to; or click a button."""
+        """Pick up a piece, move the picked piece to a square it can reach
+        (the second click of a move), or press a button."""
         for name, rect in BUTTONS.items():
             if rect.collidepoint(pos):
                 self._press_button(name)
@@ -508,24 +523,46 @@ class App:
         if self.state != HUMAN_TURN:
             return
         square = square_at(pos, self.flipped)
-        if square is None or square == self.selected:
-            self.selected = None  # a click off the board or on the picked piece
+        if square is None:
+            self.selected = None  # a click off the board
             return
-        if self.selected is not None:
-            moves = self._moves_between(self.selected, square)
-            if len(moves) == 1:
-                self._play(moves[0])
-                return
-            if moves:  # a promotion: the player chooses the piece first
-                moves.sort(
-                    key=lambda move: PROMOTION_PIECES.index(move.promotion_piece)
-                )
-                self.promotion_moves = moves
-                self.state = PROMOTING
-                return
+        if self.selected is not None and self._moves_between(self.selected, square):
+            self._move_piece(self.selected, square)
+            return
         r, c = square
         own_color = "w" if self.gs.white_to_move else "b"
-        self.selected = square if self.gs.board[r][c][0] == own_color else None
+        if self.gs.board[r][c][0] == own_color:
+            self.drag = (square, square == self.selected)
+            self.selected = square
+        else:
+            self.selected = None
+
+    def _on_release(self, pos):
+        """Put down a dragged piece: on a square it can reach, that is its move."""
+        if self.drag is None:
+            return
+        start, was_picked = self.drag
+        self.drag = None
+        square = square_at(pos, self.flipped)
+        if square == start:
+            if was_picked:
+                self.selected = None  # a second click on the picked piece
+        elif square is not None and self._moves_between(start, square):
+            self._move_piece(start, square)
+        else:
+            self.selected = None  # dropped where it cannot go
+
+    def _move_piece(self, start, end):
+        """Play the move from `start` to `end`; for a promotion, open the
+        picker so the player chooses the piece first."""
+        moves = self._moves_between(start, end)
+        if len(moves) == 1:
+            self._play(moves[0])
+            return
+        moves.sort(key=lambda move: PROMOTION_PIECES.index(move.promotion_piece))
+        self.selected = start
+        self.promotion_moves = moves
+        self.state = PROMOTING
 
     def _promotion_choices(self):
         """(screen rectangle, move) for each piece the picker offers: a column
@@ -616,6 +653,8 @@ class App:
         if self.state == PROMOTING:
             self._draw_promotion_picker()
         self._draw_panel()
+        if self.drag is not None:
+            self._draw_dragged_piece()
         if self.state == GAME_OVER:
             draw_end_game_text(self.screen, game_over_text(self.gs))
 
@@ -660,10 +699,24 @@ class App:
         if self.state == ANIMATING:
             move = self.animation[0]
             hidden = (move.end_row, move.end_col)
+        elif self.drag is not None:
+            hidden = self.drag[0]  # drawn at the mouse instead
         for r, row in enumerate(self.gs.board):
             for c, piece in enumerate(row):
                 if piece != "--" and (r, c) != hidden:
                     self.screen.blit(IMAGES[piece], square_rect((r, c), self.flipped))
+
+    def _draw_dragged_piece(self):
+        """The dragged piece under the mouse, and a frame around the square it
+        would move to if dropped there."""
+        start = self.drag[0]
+        mouse = p.mouse.get_pos()
+        target = square_at(mouse, self.flipped)
+        if target is not None and self._moves_between(start, target):
+            frame = square_rect(target, self.flipped)
+            p.draw.rect(self.screen, TEXT_COLOR, frame, 3)
+        piece = self.gs.board[start[0]][start[1]]
+        self.screen.blit(IMAGES[piece], IMAGES[piece].get_rect(center=mouse))
 
     def _draw_panel(self):
         screen = self.screen
@@ -700,6 +753,8 @@ class App:
             p.draw.rect(screen, color, rect, border_radius=6)
             label = self.button_labels[name]
             screen.blit(label, label.get_rect(center=rect.center))
+        for i, label in enumerate(self.help_labels):
+            screen.blit(label, (left, HELP_Y + 14 * i))
 
     def _draw_move_log(self):
         """One numbered move pair per line; the newest move is highlighted."""

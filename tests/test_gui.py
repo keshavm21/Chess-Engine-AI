@@ -151,10 +151,19 @@ def centre(name):
     )
 
 
+def mouse(app, kind, pos):
+    app.handle_event(pygame.event.Event(kind, pos=pos, button=1))
+
+
 def click(app, name):
-    app.handle_event(
-        pygame.event.Event(pygame.MOUSEBUTTONDOWN, pos=centre(name), button=1)
-    )
+    """Press and release the mouse button on square `name`."""
+    mouse(app, pygame.MOUSEBUTTONDOWN, centre(name))
+    mouse(app, pygame.MOUSEBUTTONUP, centre(name))
+
+
+def drag(app, start, end):
+    mouse(app, pygame.MOUSEBUTTONDOWN, centre(start))
+    mouse(app, pygame.MOUSEBUTTONUP, centre(end))
 
 
 def press(app, key):
@@ -266,6 +275,57 @@ class TestApp:
         assert gui.game_over_text(app.gs) == "Black wins by checkmate"
         click(app, "e2")  # no more moves
         assert app.selected is None
+
+
+class TestDragAndDrop:
+    def test_dragging_a_piece_to_a_square_it_can_reach_moves_it(self, app):
+        drag(app, "g1", "f3")
+        assert coordinates(app.gs) == ["g1f3"]
+        assert app.drag is None and app.selected is None
+
+    def test_the_piece_follows_the_mouse_while_the_button_is_held(
+        self, app, monkeypatch
+    ):
+        mouse(app, pygame.MOUSEBUTTONDOWN, centre("g1"))
+        assert app.drag == ((7, 6), False)
+        monkeypatch.setattr(pygame.mouse, "get_pos", lambda: centre("f3"))
+        app.draw()  # the knight under the mouse, a frame around f3
+        knight = gui.IMAGES["wN"]
+        x, y = next(  # an opaque pixel of the knight's image
+            (x, y)
+            for y in range(gui.SQ_SIZE)
+            for x in range(gui.SQ_SIZE)
+            if knight.get_at((x, y)).a == 255
+        )
+        f3, g1 = gui.square_rect((5, 5)), gui.square_rect((7, 6))
+        assert app.screen.get_at((f3.x + x, f3.y + y)) == knight.get_at((x, y))
+        assert app.screen.get_at((g1.x + x, g1.y + y)) != knight.get_at((x, y))
+
+    @pytest.mark.parametrize("target", ["g4", "e2", "h8"])
+    def test_dropping_where_the_piece_cannot_go_puts_it_back(self, app, target):
+        drag(app, "g1", target)  # unreachable, own piece, far away
+        assert not app.gs.move_log
+        assert app.selected is None and app.drag is None
+
+    def test_dropping_off_the_board(self, app):
+        mouse(app, pygame.MOUSEBUTTONDOWN, centre("g1"))
+        mouse(app, pygame.MOUSEBUTTONUP, (gui.PANEL_LEFT + 50, 200))
+        assert not app.gs.move_log
+        assert app.selected is None
+
+    def test_dragging_a_pawn_to_the_last_rank_opens_the_picker(self, app):
+        app.new_game(fen="4k3/P7/8/8/8/8/8/4K3 w - -")
+        drag(app, "a7", "a8")
+        assert app.state == gui.PROMOTING
+        click(app, "a6")
+        assert coordinates(app.gs) == ["a7a8b"]
+
+    def test_escape_while_dragging(self, app):
+        mouse(app, pygame.MOUSEBUTTONDOWN, centre("g1"))
+        press(app, pygame.K_ESCAPE)
+        assert app.drag is None
+        mouse(app, pygame.MOUSEBUTTONUP, centre("f3"))  # too late: no move
+        assert not app.gs.move_log
 
 
 class TestPromotionPicker:
@@ -415,9 +475,8 @@ class TestSidesAndLevels:
         e7, e5 = gui.square_rect((1, 4), flipped=True), gui.square_rect((3, 4), True)
         assert e7.bottom > gui.BOARD_HEIGHT // 2
         for rect in (e7, e5):
-            app.handle_event(
-                pygame.event.Event(pygame.MOUSEBUTTONDOWN, pos=rect.center, button=1)
-            )
+            mouse(app, pygame.MOUSEBUTTONDOWN, rect.center)
+            mouse(app, pygame.MOUSEBUTTONUP, rect.center)
         assert coordinates(app.gs)[-1] == "e7e5"
 
     @pytest.mark.parametrize("level", list(search.DIFFICULTIES))
@@ -669,9 +728,8 @@ def play_scripted_game(monkeypatch, moves, human_plays_white=True, max_frames=60
         out = []
         if state["clicks"]:
             state["pos"] = state["clicks"].pop(0)
-            out.append(
-                pygame.event.Event(pygame.MOUSEBUTTONDOWN, pos=state["pos"], button=1)
-            )
+            for kind in (pygame.MOUSEBUTTONDOWN, pygame.MOUSEBUTTONUP):
+                out.append(pygame.event.Event(kind, pos=state["pos"], button=1))
         elif (
             gs
             and not messages
