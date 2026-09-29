@@ -259,13 +259,31 @@ docs: record Phase 6 results and update guides
 
 **Verification:** perft unchanged. Hash and draw tests pass. Fixed-depth benchmark shows fewer nodes, with TT hit rate reported. Self-play match against Phase 6 is not worse.
 
-**Planned commits:**
+**Outcome (2026-09-29):**
+- **Tests:** 290 pass.
+- **Zobrist key:** it equals a from-scratch recomputation after every move and undo on 150 random games, and the perft undo check now covers it too.
+- **Draw rules:** the engine has threefold repetition, the fifty-move rule (halfmove clock, now in FEN) and insufficient material; the GUI announces draws.
+- **Draw-aware search:** tests show the losing side steers into a repetition, the winning side avoids one, and the engine won't trade into K+N v K. Each of these tests fails with the corresponding detection switched off.
+- **Transposition table:** 27 % / 45 % fewer nodes at depth 3 / 4, with identical results on the benchmark positions, and exact mate distances with ply-adjusted scores.
+- **Killer/history ordering:** −19 % time at depth 4.
+- **Search speed and depth:** depth 3 is 22 % faster overall, and 19 of 20 positions reach depth 4+ at the default 2 s.
+- **Tactics:** still 22/22.
+- **Matches:** TT +10 =4 −6. Killer/history 19/40, no measurable change (kept for its benchmark gain, as the plan's criterion says). Against the Phase 6 configuration: **+11 =3 −6 (62 %)**, so the gate is met.
+
+Notes:
+- The evaluation cache was already removed in Phase 6, so the TT simply adds; it isn't used in the quiescence search.
+- The search scores **any** repeated position as a draw (standard engine practice), while the game rule needs three occurrences.
+- **FEN now has all six fields.** Tests that compared 4-field strings were updated, and the match tool uses the engine's draw rules instead of its own.
+- The optional opening book (D9) was not done.
+
+**Commits:**
 ```
 feat: maintain an incremental Zobrist position key
-feat: detect draws by insufficient material, fifty-move rule and repetition
-feat: score repetitions as draws inside the search
-feat: add transposition table and remove the evaluation cache
-feat: add killer-move and history move ordering
+feat: detect draws by threefold repetition, fifty-move rule and insufficient material
+feat: score repetitions and other draws inside the search
+feat: add a transposition table with ply-adjusted mate scores
+feat: order quiet moves with killer moves and the history heuristic
+docs: record Phase 7 results and update guides
 ```
 
 ---

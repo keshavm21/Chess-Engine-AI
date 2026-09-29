@@ -51,8 +51,8 @@ repository before deciding what remains to be done.
 ## Search
 
 The search implementation currently uses Minimax with Alpha-Beta pruning
-(written as negamax), with iterative deepening under a time limit and a
-quiescence search.
+(written as negamax), with iterative deepening under a time limit, a
+quiescence search and a transposition table (Zobrist keys).
 
 When modifying search:
 

@@ -2,7 +2,7 @@
 
 This is a fully functional **Chess Engine** written in Python using `pygame`. It features a custom AI opponent that looks ahead using the **Minimax algorithm** with **Alpha-Beta pruning**, a quiescence search for tactics, and a positional evaluation.
 
-- **Engine:** Handles move generation, validation, castling, en passant, promotion (including underpromotion), and checkmate/stalemate detection.
+- **Engine:** Handles move generation, validation, castling, en passant, promotion (including underpromotion), checkmate/stalemate, and draws by threefold repetition, the fifty-move rule and insufficient material.
 - **AI:** Minimax search (as negamax) with Alpha-Beta pruning, iterative deepening under a time limit (about 2 seconds per move by default), a quiescence search, move ordering, and a tapered positional evaluation.
 - **UI:** Graphical interface with move logging, valid move highlighting, and a live evaluation bar showing the engine's own evaluation.
 - **Platforms:** Developed on macOS; the test suite runs on Linux (Ubuntu) in CI. Windows is untested.
@@ -71,6 +71,9 @@ The AI (`chess_ai/search.py` and `chess_ai/evaluation.py`) combines the followin
 - **Minimax with Alpha-Beta Pruning** — efficient search tree pruning, implemented as negamax
 - **Iterative Deepening** — searches 1, 2, 3, … moves deep until the time limit and plays the best move of the deepest completed search
 - **Quiescence Search** — at the end of the search, captures are played out until the position is quiet, so the engine does not misjudge positions in the middle of an exchange
+- **Transposition Table** — positions reached by different move orders are recognised (Zobrist hashing) and not searched twice; the best move found earlier is tried first
+- **Move Ordering** — captures first (most valuable victim first), then "killer" moves and a history score for quiet moves, so Alpha-Beta can prune more
+- **Draw Awareness** — repeating a position, the fifty-move rule and insufficient material count as draws inside the search
 
 ### Evaluation (in centipawns)
 - **Material** and **piece-square tables** (built from simple rules, e.g. knights prefer the centre), blended between middlegame and endgame tables as material comes off the board
@@ -84,7 +87,7 @@ The AI (`chess_ai/search.py` and `chess_ai/evaluation.py`) combines the followin
 
 ## Features
 - Chess rules including special moves (castling, en passant, pawn promotion to any piece)
-- Checkmate and stalemate detection
+- Checkmate, stalemate and draw detection (threefold repetition, fifty-move rule, insufficient material)
 - Move validation and legal move generation
 - Visual feedback for valid moves
 - Move history with undo functionality
@@ -102,9 +105,7 @@ python -m chess_ai.match default no-quiescence --jobs 4   # self-play match betw
 
 ## Known Limitations
 - In the GUI, pawns always promote to a queen (the engine and AI support all promotion pieces)
-- No threefold repetition, fifty-move rule, or insufficient-material draw detection
 - The AI usually uses its full time (about 2 seconds per move); it answers sooner when it finds a forced mate or has only one legal move. How deep it gets depends on the position and the machine
-- Depth beyond 3 may cause noticeable delays on slower systems
 
 ## License
 This project is open source and available for educational purposes.

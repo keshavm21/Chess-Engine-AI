@@ -197,3 +197,58 @@ Without the quiescence pruning, Kiwipete took 6.7 s and 164 000 nodes at depth 3
 | 5 s | mostly 4 | 4 (11×), 5 (6×), 6–7 (2×) |
 
 Test suite: `pytest` ~32 s, `pytest -m "not slow"` ~5 s.
+
+---
+
+## Phase 7: hashing, draw rules, transposition table
+
+| | |
+|---|---|
+| Date | 2026-09-29 |
+| Commands | `python -m chess_ai.benchmark`, `python -m chess_ai.tactics`, `python -m chess_ai.match` |
+| Machine / Python | Apple M1, macOS / 3.12.14 |
+
+**Zobrist key and draw checks** are nearly free. Perft speed is unchanged, the search gets about 4 % slower from updating the key in `make_move`, and the draw checks per node cost under 1 %.
+
+**Transposition table** (same positions, TT on vs off). The chosen move and score are identical in all 8 cases:
+
+| Depth | Nodes without → with TT | Time without → with TT |
+|---|---|---|
+| 3 | 45 465 → 33 412 (−27 %) | 2.53 s → 1.82 s |
+| 4 | 191 574 → 104 794 (−45 %) | 10.58 s → 5.97 s (Kiwipete 2.5× faster) |
+
+At depth 3 the whole gain comes from searching the stored best move first. From depth 4 the table also answers positions outright (hundreds of TT hits per search).
+
+**Killer moves and history heuristic** (on top of the TT). The chosen move and score are identical in all 8 cases:
+
+| Depth | Nodes without → with | Time without → with |
+|---|---|---|
+| 3 | 33 412 → 33 421 (±0 %) | 1.87 s → 1.85 s |
+| 4 | 104 794 → 85 222 (−19 %) | 5.88 s → 4.85 s |
+
+**Self-play matches** (10 openings × both colours, `--jobs 4` unless noted):
+
+| Match | Time per move | Result | Score |
+|---|---|---|---|
+| TT vs no TT | 0.3 s | +10 =4 −6 | 60 % (≈ +70 Elo) |
+| Killer/history vs none | 0.3 s | +6 =6 −8 | 45 % |
+| Killer/history vs none | 1.0 s | +8 =4 −8 | 50 % |
+| **Phase 7 vs Phase 6 configuration** (TT and killer/history off; one process) | 0.3 s | **+11 =3 −6** | **62 %** (≈ +90 Elo) |
+
+20 games cannot resolve differences of a few dozen Elo (the uncertainty is roughly ±150 Elo). The killer/history ordering is kept for its benchmark gain (−19 % time at depth 4). The two matches, 19/40 together, show no measurable change in strength either way.
+
+**Search after Phase 7:**
+
+| Position | Fixed depth 3: time / nodes | 1 s: depth reached | Move |
+|---|---|---|---|
+| Starting position | 0.05 s / 1 186 | 4 | b1c3 |
+| Italian Game | 0.16 s / 2 678 | 3 | g8f6 |
+| Middlegame | 0.28 s / 4 715 | **4** (was 3) | d4c6 |
+| Kiwipete | 1.33 s / 24 842 | 2 | e2a6 |
+| **Total** | **1.81 s / 33 421** (Phase 6: 2.31 s / 45 465) | | |
+
+**Depth reached at 2 s (medium)**, same 20 positions: 4 (14×), 5 (3×), 6 (1×), 8 (1×), 3 (1×). That's 19 of 20 at depth 4 or more, up from 17 in Phase 6.
+
+**Tactics suite:** 22/22 at 2 s per move (unchanged); 19/22 at fixed depth 3 (unchanged).
+
+Test suite: `pytest` ~55 s (it now also compares searches at depth 4), `pytest -m "not slow"` ~6 s.
