@@ -3,6 +3,7 @@
 The window is an App that is in exactly one state at a time:
 
 - HUMAN_TURN: the player picks a move (a piece, then a square it can reach),
+- PROMOTING: the player picks the piece a pawn promotes to,
 - AI_THINKING: the AI searches in a separate process, so the window stays
   responsive,
 - ANIMATING: the last move slides into place,
@@ -23,7 +24,7 @@ os.environ.setdefault("PYGAME_HIDE_SUPPORT_PROMPT", "1")
 import pygame as p  # noqa: E402
 
 from chess_ai import search  # noqa: E402
-from chess_ai.engine import GameState  # noqa: E402
+from chess_ai.engine import PROMOTION_PIECES, GameState  # noqa: E402
 
 # AI strength: one of search.DIFFICULTIES (a selector comes with Phase 8).
 AI_DIFFICULTY = search.DEFAULT_DIFFICULTY
@@ -52,6 +53,7 @@ BOARD_COLORS = (p.Color("white"), p.Color("gray"))  # light, dark squares
 
 # App states
 HUMAN_TURN = "human turn"
+PROMOTING = "choosing a promotion"
 AI_THINKING = "AI thinking"
 ANIMATING = "animating"
 GAME_OVER = "game over"
@@ -248,19 +250,24 @@ class App:
 
     # ---------- Game flow ----------
 
-    def new_game(self):
-        """Start again from the initial position."""
+    def new_game(self, fen=None):
+        """Start again from the initial position, or from `fen` if given."""
         self._stop_ai()
-        self.gs = GameState()
-        self.selected = None  # the square of the piece the human picked
+        self.gs = GameState.from_fen(fen) if fen else GameState()
+        self._clear_input()
         self._position_changed()
 
     def undo(self):
         """Take back the last move; against the AI, back to the human's turn."""
         self._stop_ai()
         take_back_move(self.gs, self.white_is_human, self.black_is_human)
-        self.selected = None
+        self._clear_input()
         self._position_changed()
+
+    def _clear_input(self):
+        """Forget a half-entered move."""
+        self.selected = None  # the square of the piece the human picked
+        self.promotion_moves = []  # the moves the promotion picker offers
 
     def _human_to_move(self):
         return self.white_is_human if self.gs.white_to_move else self.black_is_human
@@ -283,7 +290,7 @@ class App:
     def _play(self, move):
         """Play a legal move for the side to move, then let it slide into place."""
         self.gs.make_move(move)
-        self.selected = None
+        self._clear_input()
         if self.animate:
             self.animation = (move, time.perf_counter())
             self.state = ANIMATING
@@ -367,9 +374,20 @@ class App:
                 self.undo()
             elif event.key == p.K_r:  # reset the board
                 self.new_game()
+            elif event.key == p.K_ESCAPE:
+                self._cancel_move()
+
+    def _cancel_move(self):
+        """Drop the picked piece, or close the promotion picker."""
+        self._clear_input()
+        if self.state == PROMOTING:
+            self.state = HUMAN_TURN
 
     def _on_press(self, pos):
         """Click a piece, then a square it can move to."""
+        if self.state == PROMOTING:
+            self._choose_promotion(pos)
+            return
         if self.state != HUMAN_TURN:
             return
         square = square_at(pos)
@@ -378,13 +396,38 @@ class App:
             return
         if self.selected is not None:
             moves = self._moves_between(self.selected, square)
-            if moves:
-                # Until there is a promotion picker, a pawn becomes a queen.
-                self._play(next(m for m in moves if m.promotion_piece in (None, "Q")))
+            if len(moves) == 1:
+                self._play(moves[0])
+                return
+            if moves:  # a promotion: the player chooses the piece first
+                moves.sort(
+                    key=lambda move: PROMOTION_PIECES.index(move.promotion_piece)
+                )
+                self.promotion_moves = moves
+                self.state = PROMOTING
                 return
         r, c = square
         own_color = "w" if self.gs.white_to_move else "b"
         self.selected = square if self.gs.board[r][c][0] == own_color else None
+
+    def _promotion_choices(self):
+        """(screen rectangle, move) for each piece the picker offers: a column
+        that starts on the promotion square and runs toward the middle of the
+        board, queen first."""
+        target = self.promotion_moves[0]
+        first = square_rect((target.end_row, target.end_col))
+        step = SQ_SIZE if first.top == 0 else -SQ_SIZE
+        return [
+            (first.move(0, i * step), move)
+            for i, move in enumerate(self.promotion_moves)
+        ]
+
+    def _choose_promotion(self, pos):
+        for rect, move in self._promotion_choices():
+            if rect.collidepoint(pos):
+                self._play(move)
+                return
+        self._cancel_move()  # a click anywhere else
 
     def update(self):
         """Advance what moves on by itself: the AI's search and animations."""
@@ -404,6 +447,8 @@ class App:
         self._draw_pieces()
         if self.state == ANIMATING:
             self._draw_animation()
+        if self.state == PROMOTING:
+            self._draw_promotion_picker()
         draw_move_log(self.screen, self.gs, self.move_log_font)
         if self.state == GAME_OVER:
             draw_end_game_text(self.screen, game_over_text(self.gs))
@@ -437,6 +482,17 @@ class App:
             for c, piece in enumerate(row):
                 if piece != "--" and (r, c) != hidden:
                     self.screen.blit(IMAGES[piece], square_rect((r, c)))
+
+    def _draw_promotion_picker(self):
+        shade = p.Surface((BOARD_WIDTH, BOARD_HEIGHT), p.SRCALPHA)
+        shade.fill((0, 0, 0, 110))
+        self.screen.blit(shade, (BOARD_LEFT, 0))
+        color = "w" if self.gs.white_to_move else "b"
+        for rect, move in self._promotion_choices():
+            p.draw.rect(
+                self.screen, (235, 235, 235), rect.inflate(-4, -4), border_radius=8
+            )
+            self.screen.blit(IMAGES[color + move.promotion_piece], rect)
 
     def _draw_animation(self):
         move, started = self.animation

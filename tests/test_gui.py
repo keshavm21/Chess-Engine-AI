@@ -267,6 +267,60 @@ class TestApp:
         assert app.selected is None
 
 
+class TestPromotionPicker:
+    """Finding G2: a human's pawn always became a queen."""
+
+    WHITE_PAWN_ON_A7 = "4k3/P7/8/8/8/8/8/4K3 w - -"
+
+    @pytest.mark.parametrize(
+        ("choice", "piece"), [("a8", "Q"), ("a7", "R"), ("a6", "B"), ("a5", "N")]
+    )
+    def test_each_piece_can_be_chosen(self, app, choice, piece):
+        app.new_game(self.WHITE_PAWN_ON_A7)
+        click(app, "a7")
+        click(app, "a8")
+        assert app.state == gui.PROMOTING
+        assert not app.gs.move_log  # nothing is played before the choice
+        click(app, choice)  # the picker runs down from a8: Q, R, B, N
+        assert coordinates(app.gs) == ["a7a8" + piece.lower()]
+        assert app.gs.board[0][0] == "w" + piece
+
+    def test_black_promotes_with_a_picker_running_up_the_board(self, app):
+        app.new_game("4k3/8/8/8/8/8/p7/4K3 b - -")
+        click(app, "a2")
+        click(app, "a1")
+        assert app.state == gui.PROMOTING
+        click(app, "a3")  # a1 queen, a2 rook, a3 bishop, a4 knight
+        assert coordinates(app.gs) == ["a2a1b"]
+
+    def test_a_capture_can_promote_too(self, app):
+        app.new_game("1r2k3/P7/8/8/8/8/8/4K3 w - -")
+        click(app, "a7")
+        click(app, "b8")
+        click(app, "b5")  # the fourth square of the b-file column: a knight
+        assert coordinates(app.gs) == ["a7b8n"]
+
+    def test_escape_or_a_click_elsewhere_cancels(self, app):
+        app.new_game(self.WHITE_PAWN_ON_A7)
+        for cancel in (lambda: press(app, pygame.K_ESCAPE), lambda: click(app, "h1")):
+            click(app, "a7")
+            click(app, "a8")
+            cancel()
+            assert app.state == gui.HUMAN_TURN
+            assert app.selected is None
+            assert not app.gs.move_log
+
+    def test_undo_closes_the_picker(self, app, legal_move):
+        app.new_game(self.WHITE_PAWN_ON_A7)
+        app._play(legal_move(app.gs, "e1d1"))
+        app._play(legal_move(app.gs, "e8d8"))
+        click(app, "a7")
+        click(app, "a8")
+        press(app, pygame.K_z)
+        assert app.state == gui.HUMAN_TURN
+        assert app.promotion_moves == []
+
+
 def play_scripted_game(monkeypatch, moves, max_frames=600):
     """Run the real GUI loop (gui.main) headlessly. White's moves are clicked on
     the board; Black's come from a stand-in for the AI process. Returns the
