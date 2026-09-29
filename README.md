@@ -29,12 +29,12 @@ A chess program written in pure Python: a complete rules engine, an AI that sear
 
 ## Quick start
 
-You need Python 3.10–3.13 (pygame has no pre-built packages for 3.14 yet).
+You need Python 3.10–3.13 (pygame has no pre-built packages for 3.14 yet). Check what you have with `python3.12 --version` (or `python3 --version`). On macOS, the built-in `python3` is 3.9, which is too old; install a newer Python with `brew install python@3.12` or from [python.org](https://www.python.org/downloads/).
 
 ```bash
 git clone https://github.com/keshavm21/Chess-Engine-AI.git
 cd Chess-Engine-AI
-python3 -m venv venv
+python3.12 -m venv venv           # any of 3.10–3.13; Windows: py -3.12 -m venv venv
 source venv/bin/activate          # Windows: venv\Scripts\activate
 pip install -r requirements.txt
 python -m chess_ai
