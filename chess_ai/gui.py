@@ -14,13 +14,16 @@ App._position_changed(), which decides the next state.
 
 import math
 import os
+import queue
 import time
 from multiprocessing import Process, Queue
 
-import pygame as p
+# pygame prints a banner when imported, unless told not to.
+os.environ.setdefault("PYGAME_HIDE_SUPPORT_PROMPT", "1")
+import pygame as p  # noqa: E402
 
-from chess_ai import search
-from chess_ai.engine import GameState
+from chess_ai import search  # noqa: E402
+from chess_ai.engine import GameState  # noqa: E402
 
 # AI strength: one of search.DIFFICULTIES (a selector comes with Phase 8).
 AI_DIFFICULTY = search.DEFAULT_DIFFICULTY
@@ -41,6 +44,9 @@ BOARD_LEFT = EVAL_BAR_WIDTH  # the board is drawn right of the evaluation bar
 PANEL_LEFT = BOARD_LEFT + BOARD_WIDTH
 FPS = 30
 ANIMATION_FPS = 60  # while a piece slides
+# How long to wait for the answer of a search process that has ended; it has
+# normally written it already, but it may have died without answering.
+AI_ANSWER_TIMEOUT = 1.0
 IMAGES = {}
 BOARD_COLORS = (p.Color("white"), p.Color("gray"))  # light, dark squares
 
@@ -297,13 +303,13 @@ class App:
     # ---------- AI ----------
 
     def _start_ai(self):
-        print("AI thinking...")
         level = search.DIFFICULTIES[AI_DIFFICULTY]
         self._ai_queue = Queue()
         self._ai_process = Process(
             target=search.find_best_move,
             args=(self.gs, self.legal_moves, self._ai_queue),
             kwargs={"max_depth": level.max_depth, "time_limit": level.time_limit},
+            daemon=True,  # never outlives the window
         )
         self._ai_process.start()
         self.state = AI_THINKING
@@ -312,17 +318,22 @@ class App:
         """Play the AI's move once its search process has finished."""
         if self._ai_process.is_alive():
             return
-        print("AI done thinking")
-        move = self._ai_queue.get()
-        self._ai_process = self._ai_queue = None
-        if move is None:
+        try:
+            move = self._ai_queue.get(timeout=AI_ANSWER_TIMEOUT)
+        except queue.Empty:
+            move = None  # the process died without answering
+        self._stop_ai()
+        if move not in self.legal_moves:  # never leave the game stuck
             move = search.find_random_move(self.legal_moves)
         self._play(move)
 
     def _stop_ai(self):
-        """Stop the AI's search, if one is running."""
-        if self._ai_process is not None and self._ai_process.is_alive():
-            self._ai_process.terminate()
+        """Stop the AI's search process, if there is one, and wait for it to
+        end, so that no search outlives an undo, a new game or the window."""
+        if self._ai_process is not None:
+            if self._ai_process.is_alive():
+                self._ai_process.terminate()
+            self._ai_process.join(timeout=1)
         self._ai_process = self._ai_queue = None
 
     # ---------- Input ----------
@@ -330,13 +341,21 @@ class App:
     def run(self):
         """The main loop: handle input, advance the game and draw it, until
         the window is closed."""
-        while self.running:
-            for event in p.event.get():
-                self.handle_event(event)
-            self.update()
-            self.draw()
-            p.display.flip()
-            self.clock.tick(ANIMATION_FPS if self.state == ANIMATING else FPS)
+        try:
+            while self.running:
+                for event in p.event.get():
+                    self.handle_event(event)
+                self.update()
+                self.draw()
+                p.display.flip()
+                self.clock.tick(ANIMATION_FPS if self.state == ANIMATING else FPS)
+        finally:
+            self.close()
+
+    def close(self):
+        """Stop the AI and close the window."""
+        self._stop_ai()
+        p.quit()
 
     def handle_event(self, event):
         if event.type == p.QUIT:

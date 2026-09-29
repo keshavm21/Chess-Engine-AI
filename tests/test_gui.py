@@ -228,6 +228,36 @@ class TestApp:
         assert not app.gs.move_log
         assert app.state == gui.HUMAN_TURN
 
+    def test_the_ai_process_never_outlives_the_window(self, app, ai_processes):
+        app.black_is_human = False
+        click(app, "e2")
+        click(app, "e4")
+        (process,) = ai_processes
+        assert process.daemon  # ends with the program, whatever happens
+        app.close()
+        assert process.terminated
+
+    def test_closing_the_window_while_the_ai_thinks_stops_it(self, app, ai_processes):
+        """Finding G9: the program used to live on until the search finished."""
+        app.black_is_human = False
+        click(app, "e2")
+        click(app, "e4")
+        pygame.event.post(pygame.event.Event(pygame.QUIT))
+        app.run()
+        assert ai_processes[0].terminated
+
+    def test_an_ai_process_that_ends_without_answering(
+        self, app, ai_processes, monkeypatch
+    ):
+        monkeypatch.setattr(gui, "AI_ANSWER_TIMEOUT", 0.01)
+        app.black_is_human = False
+        click(app, "e2")
+        click(app, "e4")
+        ai_processes[0].alive = False  # it ended, but never put a move
+        app.update()
+        assert len(app.gs.move_log) == 2  # a legal move instead of a hang
+        assert app.state == gui.HUMAN_TURN
+
     def test_game_over(self, app, legal_move):
         for move in ("f2f3", "e7e5", "g2g4", "d8h4"):
             app._play(legal_move(app.gs, move))
@@ -249,7 +279,7 @@ def play_scripted_game(monkeypatch, moves, max_frames=600):
         return games[-1]
 
     class ScriptedAIProcess:
-        def __init__(self, target=None, args=(), kwargs=None):
+        def __init__(self, target=None, args=(), kwargs=None, daemon=None):
             self.args = args
 
         def start(self):
@@ -261,6 +291,9 @@ def play_scripted_game(monkeypatch, moves, max_frames=600):
             return False
 
         def terminate(self):
+            pass
+
+        def join(self, timeout=None):
             pass
 
     messages = []
