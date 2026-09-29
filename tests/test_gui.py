@@ -9,8 +9,9 @@ os.environ.setdefault("SDL_VIDEODRIVER", "dummy")
 os.environ.setdefault("SDL_AUDIODRIVER", "dummy")
 pygame = pytest.importorskip("pygame")
 
-from chess_ai import gui  # noqa: E402  (needs the SDL settings above)
+from chess_ai import gui, search  # noqa: E402  (needs the SDL settings above)
 from chess_ai.engine import GameState  # noqa: E402
+from chess_ai.evaluation import CHECKMATE  # noqa: E402
 
 START = "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1"
 
@@ -276,7 +277,7 @@ class TestPromotionPicker:
         ("choice", "piece"), [("a8", "Q"), ("a7", "R"), ("a6", "B"), ("a5", "N")]
     )
     def test_each_piece_can_be_chosen(self, app, choice, piece):
-        app.new_game(self.WHITE_PAWN_ON_A7)
+        app.new_game(fen=self.WHITE_PAWN_ON_A7)
         click(app, "a7")
         click(app, "a8")
         assert app.state == gui.PROMOTING
@@ -286,7 +287,7 @@ class TestPromotionPicker:
         assert app.gs.board[0][0] == "w" + piece
 
     def test_black_promotes_with_a_picker_running_up_the_board(self, app):
-        app.new_game("4k3/8/8/8/8/8/p7/4K3 b - -")
+        app.new_game(fen="4k3/8/8/8/8/8/p7/4K3 b - -")
         click(app, "a2")
         click(app, "a1")
         assert app.state == gui.PROMOTING
@@ -294,14 +295,14 @@ class TestPromotionPicker:
         assert coordinates(app.gs) == ["a2a1b"]
 
     def test_a_capture_can_promote_too(self, app):
-        app.new_game("1r2k3/P7/8/8/8/8/8/4K3 w - -")
+        app.new_game(fen="1r2k3/P7/8/8/8/8/8/4K3 w - -")
         click(app, "a7")
         click(app, "b8")
         click(app, "b5")  # the fourth square of the b-file column: a knight
         assert coordinates(app.gs) == ["a7b8n"]
 
     def test_escape_or_a_click_elsewhere_cancels(self, app):
-        app.new_game(self.WHITE_PAWN_ON_A7)
+        app.new_game(fen=self.WHITE_PAWN_ON_A7)
         for cancel in (lambda: press(app, pygame.K_ESCAPE), lambda: click(app, "h1")):
             click(app, "a7")
             click(app, "a8")
@@ -311,7 +312,7 @@ class TestPromotionPicker:
             assert not app.gs.move_log
 
     def test_undo_closes_the_picker(self, app, legal_move):
-        app.new_game(self.WHITE_PAWN_ON_A7)
+        app.new_game(fen=self.WHITE_PAWN_ON_A7)
         app._play(legal_move(app.gs, "e1d1"))
         app._play(legal_move(app.gs, "e8d8"))
         click(app, "a7")
@@ -339,11 +340,11 @@ class TestSquareMarks:
         assert app.screen.get_at(e2) != gui.LIGHT_SQUARE  # empty, but tinted
 
     def test_a_king_in_check_is_marked(self, app):
-        app.new_game("4k3/8/8/8/8/8/8/4R1K1 b - -")
+        app.new_game(fen="4k3/8/8/8/8/8/8/4R1K1 b - -")
         assert ("check", (0, 4)) in app.square_marks()
 
     def test_the_picked_piece_shows_its_moves_and_captures(self, app):
-        app.new_game("4k3/8/8/3p4/4P3/8/8/4K3 w - -")
+        app.new_game(fen="4k3/8/8/3p4/4P3/8/8/4K3 w - -")
         click(app, "e4")
         assert sorted(app.square_marks()) == [
             ("capture", (3, 3)),  # exd5
@@ -352,13 +353,13 @@ class TestSquareMarks:
         ]
 
     def test_a_promotion_square_is_marked_once(self, app):
-        app.new_game("4k3/P7/8/8/8/8/8/4K3 w - -")
+        app.new_game(fen="4k3/P7/8/8/8/8/8/4K3 w - -")
         click(app, "a7")
         assert app.square_marks().count(("move", (0, 0))) == 1  # not 4 times
 
     def test_drawing_every_state(self, app, ai_processes):
         """Smoke test: every state draws without errors."""
-        app.new_game("4k3/P7/8/8/8/8/8/4K2R w K -")
+        app.new_game(fen="4k3/P7/8/8/8/8/8/4K2R w K -")
         click(app, "a7")
         app.draw()  # a piece picked
         click(app, "a8")
@@ -368,9 +369,9 @@ class TestSquareMarks:
         click(app, "h1")
         click(app, "h7")
         app.draw()  # animating
-        app.new_game("4k3/8/8/8/8/8/8/4R1K1 b - -")
+        app.new_game(fen="4k3/8/8/8/8/8/8/4R1K1 b - -")
         app.draw()  # a king in check
-        app.new_game("7k/5Q2/6K1/8/8/8/8/8 b - -")
+        app.new_game(fen="7k/5Q2/6K1/8/8/8/8/8 b - -")
         app.draw()  # game over: stalemate
         app.black_is_human = False
         app.new_game()
@@ -383,10 +384,94 @@ class TestSquareMarks:
         app.draw()
 
 
-def play_scripted_game(monkeypatch, moves, max_frames=600):
-    """Run the real GUI loop (gui.main) headlessly. White's moves are clicked on
-    the board; Black's come from a stand-in for the AI process. Returns the
-    end-of-game messages the GUI drew and the final GameState."""
+class TestSidesAndLevels:
+    """Finding G7: always White, no difficulty choice, no board flip."""
+
+    @pytest.mark.parametrize("flipped", [False, True])
+    def test_squares_and_screen_positions_match(self, flipped):
+        for row in range(8):
+            for col in range(8):
+                rect = gui.square_rect((row, col), flipped)
+                assert gui.square_at(rect.center, flipped) == (row, col)
+                assert gui.square_at(rect.topleft, flipped) == (row, col)
+        board_top_left = (gui.EVAL_BAR_WIDTH, 0)
+        assert gui.square_at(board_top_left, flipped) == ((7, 7) if flipped else (0, 0))
+        assert gui.square_at((gui.EVAL_BAR_WIDTH - 1, 0), flipped) is None  # eval bar
+        assert gui.square_at((gui.PANEL_LEFT, 0), flipped) is None  # side panel
+
+    def test_playing_black_flips_the_board_and_the_ai_opens(self, app, ai_processes):
+        app.handle_event(
+            pygame.event.Event(
+                pygame.MOUSEBUTTONDOWN, pos=gui.BUTTONS["black"].center, button=1
+            )
+        )
+        assert app.flipped
+        assert (app.white_is_human, app.black_is_human) == (False, True)
+        assert app.state == gui.AI_THINKING
+        ai_processes[0].answer()
+        app.update()
+        assert app.state == gui.HUMAN_TURN
+        # The human now clicks where e7 and e5 are shown: near the bottom.
+        e7, e5 = gui.square_rect((1, 4), flipped=True), gui.square_rect((3, 4), True)
+        assert e7.bottom > gui.BOARD_HEIGHT // 2
+        for rect in (e7, e5):
+            app.handle_event(
+                pygame.event.Event(pygame.MOUSEBUTTONDOWN, pos=rect.center, button=1)
+            )
+        assert coordinates(app.gs)[-1] == "e7e5"
+
+    @pytest.mark.parametrize("level", list(search.DIFFICULTIES))
+    def test_the_level_sets_the_ai_search_limits(self, app, ai_processes, level):
+        app.black_is_human = False
+        app.handle_event(
+            pygame.event.Event(
+                pygame.MOUSEBUTTONDOWN, pos=gui.BUTTONS[level].center, button=1
+            )
+        )
+        assert app.difficulty == level
+        click(app, "e2")
+        click(app, "e4")
+        limits = search.DIFFICULTIES[level]
+        assert ai_processes[0].kwargs == {
+            "max_depth": limits.max_depth,
+            "time_limit": limits.time_limit,
+        }
+
+    def test_flip_only_turns_the_board(self, app):
+        click(app, "e2")
+        press(app, pygame.K_f)
+        assert app.flipped
+        assert app.selected == (6, 4)  # the same piece stays picked
+        assert app.white_is_human
+        press(app, pygame.K_f)
+        assert not app.flipped
+
+    def test_a_new_game_keeps_the_side_and_level(self, app, ai_processes):
+        app.new_game(human_plays_white=False)
+        app.difficulty = "hard"
+        press(app, pygame.K_r)
+        assert app.flipped and not app.human_plays_white
+        assert app.difficulty == "hard"
+
+    @pytest.mark.parametrize("flipped", [False, True])
+    def test_the_evaluation_bar_grows_from_whites_side(self, flipped):
+        pygame.init()
+        screen = pygame.Surface(gui.WINDOW_SIZE)
+        font = pygame.font.SysFont("Arial", 12)
+        top, bottom = (5, 60), (5, gui.BOARD_HEIGHT - 60)
+        whites_end, blacks_end = (top, bottom) if flipped else (bottom, top)
+        gui.draw_evaluation_bar(screen, 300, font, flipped)  # White is better
+        assert screen.get_at(whites_end) == gui.EVAL_WHITE
+        assert screen.get_at(blacks_end) == gui.EVAL_BLACK
+        gui.draw_evaluation_bar(screen, -(CHECKMATE - 3), font, flipped)  # mated
+        assert screen.get_at(whites_end) == gui.EVAL_BLACK
+
+
+def play_scripted_game(monkeypatch, moves, human_plays_white=True, max_frames=600):
+    """Run the real GUI loop (gui.main) headlessly. The human's moves are
+    clicked on the board (to play Black, the "Black" button is clicked first);
+    the AI's come from a stand-in for its process. Returns the end-of-game
+    messages the GUI drew and the final GameState."""
     games = []
     real_game_state = gui.GameState
 
@@ -420,9 +505,13 @@ def play_scripted_game(monkeypatch, moves, max_frames=600):
         real_end_text(screen, text)
 
     state = {"frames": 0, "clicks": [], "pos": (0, 0), "quit_in": None}
+    if not human_plays_white:
+        state["clicks"] = [gui.BUTTONS["black"].center]
 
     def centre(name):
         row, col = 8 - int(name[1]), ord(name[0]) - ord("a")
+        if not human_plays_white:  # the board is shown with Black at the bottom
+            row, col = 7 - row, 7 - col
         return (
             gui.EVAL_BAR_WIDTH + col * gui.SQ_SIZE + gui.SQ_SIZE // 2,
             row * gui.SQ_SIZE + gui.SQ_SIZE // 2,
@@ -437,12 +526,18 @@ def play_scripted_game(monkeypatch, moves, max_frames=600):
             out.append(
                 pygame.event.Event(pygame.MOUSEBUTTONDOWN, pos=state["pos"], button=1)
             )
-        elif gs and not messages and gs.white_to_move and len(gs.move_log) < len(moves):
+        elif (
+            gs
+            and not messages
+            and gs.white_to_move == human_plays_white
+            and len(gs.move_log) < len(moves)
+        ):
             move = moves[len(gs.move_log)]
             state["clicks"] = [centre(move[:2]), centre(move[2:4])]
-        finished = messages or (gs and len(gs.move_log) >= len(moves))
-        if finished and state["quit_in"] is None:
+        if messages and (state["quit_in"] is None or state["quit_in"] > 5):
             state["quit_in"] = 5  # let the GUI draw a few more frames
+        elif gs and len(gs.move_log) >= len(moves) and state["quit_in"] is None:
+            state["quit_in"] = 60  # time for the last move to slide into place
         if state["quit_in"] is not None:
             state["quit_in"] -= 1
         if state["quit_in"] == 0 or state["frames"] > max_frames:
@@ -478,3 +573,13 @@ def test_the_game_window_declares_threefold_repetition(monkeypatch, moves, draw_
     messages, gs = play_scripted_game(monkeypatch, moves.split())
     assert messages and messages[-1] == "Draw by threefold repetition"
     assert len(gs.move_log) == draw_at_ply  # the game stopped at the draw
+
+
+@pytest.mark.slow
+def test_a_game_as_black_in_the_game_window(monkeypatch):
+    """Black is chosen with its button, the board is flipped, the AI opens."""
+    messages, gs = play_scripted_game(
+        monkeypatch, "f2f3 e7e5 g2g4 d8h4".split(), human_plays_white=False
+    )
+    assert messages and messages[-1] == "Black wins by checkmate"
+    assert len(gs.move_log) == 4

@@ -26,9 +26,6 @@ import pygame as p  # noqa: E402
 from chess_ai import search  # noqa: E402
 from chess_ai.engine import PROMOTION_PIECES, GameState  # noqa: E402
 
-# AI strength: one of search.DIFFICULTIES (a selector comes with Phase 8).
-AI_DIFFICULTY = search.DEFAULT_DIFFICULTY
-
 # Piece sprites live next to this module.
 IMAGE_PATH = os.path.join(os.path.dirname(__file__), "assets", "pieces")
 
@@ -36,13 +33,13 @@ IMAGE_PATH = os.path.join(os.path.dirname(__file__), "assets", "pieces")
 # images you have in terms of quality and resolution and 512 is a power of 2
 BOARD_WIDTH = BOARD_HEIGHT = 512
 EVAL_BAR_WIDTH = 40  # Width of evaluation bar
-MOVE_LOG_PANEL_WIDTH = 270
-MOVE_LOG_PANEL_HEIGHT = BOARD_HEIGHT
+PANEL_WIDTH = 300  # the side panel right of the board
 # the chess board is 8x8 :)
 DIMENSION = 8
 SQ_SIZE = BOARD_HEIGHT // DIMENSION
 BOARD_LEFT = EVAL_BAR_WIDTH  # the board is drawn right of the evaluation bar
 PANEL_LEFT = BOARD_LEFT + BOARD_WIDTH
+WINDOW_SIZE = (PANEL_LEFT + PANEL_WIDTH, BOARD_HEIGHT)
 FPS = 30
 ANIMATION_FPS = 60  # while a piece slides
 # How long to wait for the answer of a search process that has ended; it has
@@ -57,6 +54,45 @@ LAST_MOVE_TINT = (205, 210, 60, 130)
 SELECTED_TINT = (20, 110, 40, 110)
 MOVE_HINT = (20, 85, 30, 100)  # dots and rings where the picked piece can go
 CHECK_GLOW = (230, 20, 20)
+EVAL_WHITE, EVAL_BLACK, EVAL_MIDLINE = (240, 240, 240), (64, 62, 58), (140, 140, 140)
+PANEL_BG = (38, 36, 33)
+PANEL_LINE = (70, 67, 62)
+TEXT_COLOR = (232, 230, 227)
+MUTED_TEXT = (155, 152, 148)
+BUTTON_COLOR, BUTTON_HOVER, BUTTON_ACTIVE = (62, 59, 55), (82, 79, 74), (98, 138, 52)
+
+# Side panel layout (y coordinates): the move log, then the buttons.
+PANEL_PADDING = 14
+LOG_BOTTOM = 334
+SIDE_LABEL_Y, SIDE_BUTTONS_Y = 344, 362
+LEVEL_LABEL_Y, LEVEL_BUTTONS_Y = 396, 414
+ACTION_BUTTONS_Y = 452
+BUTTON_HEIGHT = 28
+
+
+def _button_row(y, names, gap=8):
+    """Rectangles for buttons side by side across the panel."""
+    left = PANEL_LEFT + PANEL_PADDING
+    width = (PANEL_WIDTH - 2 * PANEL_PADDING - gap * (len(names) - 1)) // len(names)
+    return {
+        name: p.Rect(left + i * (width + gap), y, width, BUTTON_HEIGHT)
+        for i, name in enumerate(names)
+    }
+
+
+BUTTONS = {
+    **_button_row(SIDE_BUTTONS_Y, ("white", "black")),
+    **_button_row(LEVEL_BUTTONS_Y, tuple(search.DIFFICULTIES)),
+    **_button_row(ACTION_BUTTONS_Y, ("undo", "new", "flip")),
+}
+BUTTON_LABELS = {
+    "white": "White",
+    "black": "Black",
+    **{level: level.capitalize() for level in search.DIFFICULTIES},
+    "undo": "Undo (Z)",
+    "new": "New game (R)",
+    "flip": "Flip (F)",
+}
 
 # App states
 HUMAN_TURN = "human turn"
@@ -74,17 +110,21 @@ def load_images():
         IMAGES[piece] = p.transform.scale(p.image.load(img), (SQ_SIZE, SQ_SIZE))
 
 
-def square_at(pos):
-    """The board square (row, col) under the screen position `pos`, or None."""
+def square_at(pos, flipped=False):
+    """The board square (row, col) under the screen position `pos`, or None.
+    `flipped`: the board is shown with Black at the bottom."""
     x, y = pos[0] - BOARD_LEFT, pos[1]
     if not (0 <= x < BOARD_WIDTH and 0 <= y < BOARD_HEIGHT):
         return None
-    return y // SQ_SIZE, x // SQ_SIZE
+    row, col = y // SQ_SIZE, x // SQ_SIZE
+    return (7 - row, 7 - col) if flipped else (row, col)
 
 
-def square_rect(square):
+def square_rect(square, flipped=False):
     """The screen rectangle of the board square (row, col)."""
     row, col = square
+    if flipped:
+        row, col = 7 - row, 7 - col
     return p.Rect(BOARD_LEFT + col * SQ_SIZE, row * SQ_SIZE, SQ_SIZE, SQ_SIZE)
 
 
@@ -138,86 +178,37 @@ def game_over_text(gs):
     return f"Draw by {gs.draw_reason}"
 
 
-def draw_evaluation_bar(screen, evaluation):
+def draw_evaluation_bar(screen, evaluation, font, flipped=False):
+    """Draw the evaluation bar left of the board, as on chess.com or lichess.
+
+    `evaluation` is in centipawns from White's point of view. White's share of
+    the bar grows from White's side of the board (the bottom unless
+    `flipped`), and the leading side's end shows the score in pawns, or "M"
+    for a forced mate.
     """
-    Draw the evaluation bar on the left side of the board
-    Similar to chess.com/lichess style
-    """
-    bar_rect = p.Rect(0, 0, EVAL_BAR_WIDTH, BOARD_HEIGHT)
-
-    # Background (black side)
-    p.draw.rect(screen, p.Color(50, 50, 50), bar_rect)
-
-    # Normalize evaluation to 0-1 range for display
-    # We'll use a sigmoid-like function to prevent extreme values
-    max_eval = 10.0  # Maximum evaluation to show as "winning"
-
-    if evaluation >= 1000:  # Checkmate for white
-        white_percentage = 1.0
-    elif evaluation <= -1000:  # Checkmate for black
-        white_percentage = 0.0
+    mate = abs(evaluation) >= search.MATE_THRESHOLD
+    if mate:
+        white_share = 1.0 if evaluation > 0 else 0.0
     else:
-        # Convert centipawn advantage to percentage
-        # Using a modified sigmoid function
-        normalized = evaluation / max_eval
-        # Clamp between -5 and 5 for smooth transition
-        clamped = max(-5, min(5, normalized))
-        # Sigmoid function: maps to 0-1 range
-        white_percentage = 1 / (1 + pow(10, -clamped))
+        # A sigmoid: +1 pawn fills 56 % of the bar, +5 pawns 76 %, +10 91 %.
+        pawns = max(-50.0, min(50.0, evaluation / 100))
+        white_share = 1 / (1 + 10 ** (-pawns / 10))
+    white_height = round(BOARD_HEIGHT * white_share)
+    white_top = 0 if flipped else BOARD_HEIGHT - white_height
+    p.draw.rect(screen, EVAL_BLACK, (0, 0, EVAL_BAR_WIDTH, BOARD_HEIGHT))
+    p.draw.rect(screen, EVAL_WHITE, (0, white_top, EVAL_BAR_WIDTH, white_height))
+    middle = BOARD_HEIGHT // 2
+    p.draw.line(screen, EVAL_MIDLINE, (0, middle), (EVAL_BAR_WIDTH - 1, middle))
 
-    # Calculate white's bar height (white is at bottom)
-    white_height = int(BOARD_HEIGHT * white_percentage)
-    black_height = BOARD_HEIGHT - white_height
-
-    # Draw black's portion (top)
-    if black_height > 0:
-        black_rect = p.Rect(0, 0, EVAL_BAR_WIDTH, black_height)
-        p.draw.rect(screen, p.Color(50, 50, 50), black_rect)
-
-    # Draw white's portion (bottom)
-    if white_height > 0:
-        white_rect = p.Rect(0, black_height, EVAL_BAR_WIDTH, white_height)
-        p.draw.rect(screen, p.Color(245, 245, 245), white_rect)
-
-    # Draw border
-    p.draw.rect(screen, p.Color(100, 100, 100), bar_rect, 2)
-
-    # Draw evaluation text
-    font = p.font.SysFont("Arial", 14, True, False)
-
-    if evaluation >= 1000:
-        eval_text = "M"  # Checkmate for white
-        text_color = p.Color("white")
-        text_y = black_height - 20
-    elif evaluation <= -1000:
-        eval_text = "M"  # Checkmate for black
-        text_color = p.Color("black")
-        text_y = black_height + 5
+    white_leads = evaluation >= 0
+    label = "M" if mate else f"{abs(evaluation) / 100:.1f}"
+    text = font.render(label, True, EVAL_BLACK if white_leads else EVAL_WHITE)
+    rect = text.get_rect(centerx=EVAL_BAR_WIDTH // 2)
+    if white_leads != flipped:  # the leading side is at the bottom
+        rect.bottom = BOARD_HEIGHT - 6
     else:
-        # Show evaluation in pawns
-        eval_value = abs(evaluation)
-        eval_text = f"{eval_value:.1f}"
-
-        # Position text on the larger side
-        if white_percentage > 0.5:
-            text_color = p.Color("black")
-            text_y = black_height + 5
-        else:
-            text_color = p.Color("white")
-            text_y = max(5, black_height - 20)
-
-    text_surface = font.render(eval_text, True, text_color)
-    text_rect = text_surface.get_rect(center=(EVAL_BAR_WIDTH // 2, text_y))
-
-    # Draw text background for better visibility
-    bg_rect = text_rect.inflate(4, 2)
-    bg_color = (
-        p.Color("white") if text_color == p.Color("black") else p.Color(50, 50, 50)
-    )
-    p.draw.rect(screen, bg_color, bg_rect)
-    p.draw.rect(screen, p.Color(100, 100, 100), bg_rect, 1)
-
-    screen.blit(text_surface, text_rect)
+        rect.top = 6
+    screen.blit(text, rect)
 
 
 def draw_end_game_text(screen, text):
@@ -230,9 +221,7 @@ def draw_end_game_text(screen, text):
     screen.blit(text_object, text_location.move(2, 2))
 
 
-def draw_move_log(screen, gs, font):
-    move_log_rect = p.Rect(PANEL_LEFT, 0, MOVE_LOG_PANEL_WIDTH, MOVE_LOG_PANEL_HEIGHT)
-    p.draw.rect(screen, p.Color("black"), move_log_rect)
+def draw_move_log(screen, gs, font, move_log_rect):
     move_log = gs.move_log
     move_texts = []
     for i in range(0, len(move_log), 2):
@@ -249,9 +238,11 @@ def draw_move_log(screen, gs, font):
         for j in range(moves_per_row):
             if i + j < len(move_texts):
                 text += move_texts[i + j] + "  "
-        text_object = font.render(text, True, p.Color("white"))
+        text_object = font.render(text, True, TEXT_COLOR)
         text_location = move_log_rect.move(padding, text_y)
+        screen.set_clip(move_log_rect)
         screen.blit(text_object, text_location)
+        screen.set_clip(None)
         text_y += text_object.get_height() + line_spacing
 
 
@@ -260,12 +251,21 @@ class App:
 
     def __init__(self):
         p.init()
-        p.display.set_caption("Chess with Evaluation")
-        self.screen = p.display.set_mode(
-            (PANEL_LEFT + MOVE_LOG_PANEL_WIDTH, BOARD_HEIGHT)
-        )
+        p.display.set_caption("Chess AI")
+        self.screen = p.display.set_mode(WINDOW_SIZE)
         self.clock = p.time.Clock()
-        self.move_log_font = p.font.SysFont("Arial", 20, False, False)
+        self.move_log_font = p.font.SysFont("Arial", 18, False, False)
+        self.eval_font = p.font.SysFont("Arial", 12, bold=True)
+        panel_font = p.font.SysFont("Arial", 13)
+        self.panel_labels = {
+            text: panel_font.render(text, True, MUTED_TEXT)
+            for text in ("New game as", "AI level (from its next move)")
+        }
+        button_font = p.font.SysFont("Arial", 13)
+        self.button_labels = {
+            name: button_font.render(label, True, TEXT_COLOR)
+            for name, label in BUTTON_LABELS.items()
+        }
         load_images()
         self.marks = mark_surfaces()
         # Coordinate labels in the colour of the other kind of square.
@@ -277,9 +277,12 @@ class App:
             for text in "abcdefgh12345678"
             for light in (True, False)
         }
-        # Who plays which side: a human or the AI.
+        # Who plays which side: a human or the AI (see new_game).
+        self.human_plays_white = True
         self.white_is_human = True
         self.black_is_human = False
+        self.flipped = False  # Black at the bottom of the board
+        self.difficulty = search.DEFAULT_DIFFICULTY  # a key of search.DIFFICULTIES
         self.animate = True  # slide moves into place
         self.running = True
         self._ai_process = None
@@ -288,9 +291,16 @@ class App:
 
     # ---------- Game flow ----------
 
-    def new_game(self, fen=None):
-        """Start again from the initial position, or from `fen` if given."""
+    def new_game(self, human_plays_white=None, *, fen=None):
+        """Start again from the initial position, or from `fen` if given.
+        The human keeps their side unless `human_plays_white` says otherwise;
+        their pieces are shown at the bottom."""
         self._stop_ai()
+        if human_plays_white is not None:
+            self.human_plays_white = human_plays_white
+            self.white_is_human = human_plays_white
+            self.black_is_human = not human_plays_white
+            self.flipped = not human_plays_white
         self.gs = GameState.from_fen(fen) if fen else GameState()
         self._clear_input()
         self._position_changed()
@@ -316,8 +326,8 @@ class App:
         self.animation = None
         self.legal_moves = self.gs.get_legal_moves()
         self.gs.update_game_status(self.legal_moves)
-        # The engine's own evaluation (captures played out), in pawns.
-        self.evaluation = search.evaluate_position(self.gs, self.legal_moves) / 100
+        # The engine's own evaluation (captures played out), in centipawns.
+        self.evaluation = search.evaluate_position(self.gs, self.legal_moves)
         if self.gs.checkmate or self.gs.stalemate or self.gs.draw_reason:
             self.state = GAME_OVER
         elif self._human_to_move():
@@ -348,7 +358,7 @@ class App:
     # ---------- AI ----------
 
     def _start_ai(self):
-        level = search.DIFFICULTIES[AI_DIFFICULTY]
+        level = search.DIFFICULTIES[self.difficulty]
         self._ai_queue = Queue()
         self._ai_process = Process(
             target=search.find_best_move,
@@ -412,6 +422,8 @@ class App:
                 self.undo()
             elif event.key == p.K_r:  # reset the board
                 self.new_game()
+            elif event.key == p.K_f:  # flip the board
+                self.flipped = not self.flipped
             elif event.key == p.K_ESCAPE:
                 self._cancel_move()
 
@@ -421,14 +433,30 @@ class App:
         if self.state == PROMOTING:
             self.state = HUMAN_TURN
 
+    def _press_button(self, name):
+        if name in ("white", "black"):
+            self.new_game(human_plays_white=name == "white")
+        elif name in search.DIFFICULTIES:
+            self.difficulty = name
+        elif name == "undo":
+            self.undo()
+        elif name == "new":
+            self.new_game()
+        elif name == "flip":
+            self.flipped = not self.flipped
+
     def _on_press(self, pos):
-        """Click a piece, then a square it can move to."""
+        """Click a piece, then a square it can move to; or click a button."""
+        for name, rect in BUTTONS.items():
+            if rect.collidepoint(pos):
+                self._press_button(name)
+                return
         if self.state == PROMOTING:
             self._choose_promotion(pos)
             return
         if self.state != HUMAN_TURN:
             return
-        square = square_at(pos)
+        square = square_at(pos, self.flipped)
         if square is None or square == self.selected:
             self.selected = None  # a click off the board or on the picked piece
             return
@@ -453,7 +481,7 @@ class App:
         that starts on the promotion square and runs toward the middle of the
         board, queen first."""
         target = self.promotion_moves[0]
-        first = square_rect((target.end_row, target.end_col))
+        first = square_rect((target.end_row, target.end_col), self.flipped)
         step = SQ_SIZE if first.top == 0 else -SQ_SIZE
         return [
             (first.move(0, i * step), move)
@@ -504,7 +532,7 @@ class App:
         return marks
 
     def draw(self):
-        draw_evaluation_bar(self.screen, self.evaluation)
+        draw_evaluation_bar(self.screen, self.evaluation, self.eval_font, self.flipped)
         self._draw_board()
         marks = self.square_marks()
         # Tints go under the pieces, move hints over them (a ring must show
@@ -517,30 +545,33 @@ class App:
             self._draw_animation()
         if self.state == PROMOTING:
             self._draw_promotion_picker()
-        draw_move_log(self.screen, self.gs, self.move_log_font)
+        self._draw_panel()
         if self.state == GAME_OVER:
             draw_end_game_text(self.screen, game_over_text(self.gs))
 
     def _draw_board(self):
         for r in range(DIMENSION):
             for c in range(DIMENSION):
-                p.draw.rect(self.screen, BOARD_COLORS[(r + c) % 2], square_rect((r, c)))
+                color = BOARD_COLORS[(r + c) % 2]
+                p.draw.rect(self.screen, color, square_rect((r, c), self.flipped))
 
     def _draw_marks(self, marks, kinds):
         for kind, square in marks:
             if kind in kinds:
-                self.screen.blit(self.marks[kind], square_rect(square))
+                self.screen.blit(self.marks[kind], square_rect(square, self.flipped))
 
     def _draw_coordinates(self):
         """Rank numbers down the left edge of the board and file letters
         along its bottom edge, whichever squares are shown there."""
         for i in range(DIMENSION):
-            left_edge = square_at((BOARD_LEFT, i * SQ_SIZE))
-            bottom_edge = square_at((BOARD_LEFT + i * SQ_SIZE, BOARD_HEIGHT - 1))
+            left_edge = square_at((BOARD_LEFT, i * SQ_SIZE), self.flipped)
+            bottom_edge = square_at(
+                (BOARD_LEFT + i * SQ_SIZE, BOARD_HEIGHT - 1), self.flipped
+            )
             for (row, col), is_rank in ((left_edge, True), (bottom_edge, False)):
                 text = str(8 - row) if is_rank else "abcdefgh"[col]
                 label = self.coordinate_labels[(text, (row + col) % 2 == 0)]
-                rect = square_rect((row, col))
+                rect = square_rect((row, col), self.flipped)
                 if is_rank:
                     self.screen.blit(label, (rect.x + 3, rect.y + 2))
                 else:
@@ -562,7 +593,35 @@ class App:
         for r, row in enumerate(self.gs.board):
             for c, piece in enumerate(row):
                 if piece != "--" and (r, c) != hidden:
-                    self.screen.blit(IMAGES[piece], square_rect((r, c)))
+                    self.screen.blit(IMAGES[piece], square_rect((r, c), self.flipped))
+
+    def _draw_panel(self):
+        screen = self.screen
+        p.draw.rect(screen, PANEL_BG, (PANEL_LEFT, 0, PANEL_WIDTH, BOARD_HEIGHT))
+        log_rect = p.Rect(PANEL_LEFT, 0, PANEL_WIDTH, LOG_BOTTOM)
+        draw_move_log(screen, self.gs, self.move_log_font, log_rect)
+
+        left, right = (
+            PANEL_LEFT + PANEL_PADDING,
+            PANEL_LEFT + PANEL_WIDTH - PANEL_PADDING,
+        )
+        p.draw.line(screen, PANEL_LINE, (left, LOG_BOTTOM + 2), (right, LOG_BOTTOM + 2))
+        screen.blit(self.panel_labels["New game as"], (left, SIDE_LABEL_Y))
+        screen.blit(
+            self.panel_labels["AI level (from its next move)"], (left, LEVEL_LABEL_Y)
+        )
+        mouse = p.mouse.get_pos()
+        human_side = "white" if self.human_plays_white else "black"
+        for name, rect in BUTTONS.items():
+            if name in (human_side, self.difficulty):
+                color = BUTTON_ACTIVE
+            elif rect.collidepoint(mouse):
+                color = BUTTON_HOVER
+            else:
+                color = BUTTON_COLOR
+            p.draw.rect(screen, color, rect, border_radius=6)
+            label = self.button_labels[name]
+            screen.blit(label, label.get_rect(center=rect.center))
 
     def _draw_promotion_picker(self):
         shade = p.Surface((BOARD_WIDTH, BOARD_HEIGHT), p.SRCALPHA)
@@ -585,9 +644,11 @@ class App:
                 if move.is_en_passant
                 else (move.end_row, move.end_col)
             )
-            self.screen.blit(IMAGES[move.piece_captured], square_rect(captured_square))
-        start = square_rect((move.start_row, move.start_col))
-        end = square_rect((move.end_row, move.end_col))
+            self.screen.blit(
+                IMAGES[move.piece_captured], square_rect(captured_square, self.flipped)
+            )
+        start = square_rect((move.start_row, move.start_col), self.flipped)
+        end = square_rect((move.end_row, move.end_col), self.flipped)
         x = start.x + (end.x - start.x) * progress
         y = start.y + (end.y - start.y) * progress
         self.screen.blit(IMAGES[move.piece_moved], (x, y))
