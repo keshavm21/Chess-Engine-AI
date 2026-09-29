@@ -11,7 +11,7 @@ pygame = pytest.importorskip("pygame")
 from chess_ai import gui  # noqa: E402  (needs the SDL settings above)
 from chess_ai.engine import GameState  # noqa: E402
 
-START = "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq -"
+START = "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1"
 
 
 def play(gs, legal_move, *moves):

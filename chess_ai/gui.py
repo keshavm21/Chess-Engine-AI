@@ -286,16 +286,16 @@ def main():
             screen, gs, legal_moves, selected_square, move_log_font, current_evaluation
         )
 
-        # check if the game ends either by stalemate or by a checkmate
-        if gs.checkmate or gs.stalemate:
+        # check if the game has ended: checkmate, stalemate or a draw by rule
+        if gs.checkmate or gs.stalemate or gs.draw_reason:
             game_over = True
-            text = (
-                "Stalemate"
-                if gs.stalemate
-                else "Black wins by checkmate"
-                if gs.white_to_move
-                else "White wins by checkmate"
-            )
+            if gs.checkmate:
+                winner = "Black" if gs.white_to_move else "White"
+                text = f"{winner} wins by checkmate"
+            elif gs.stalemate:
+                text = "Stalemate"
+            else:
+                text = f"Draw by {gs.draw_reason}"
             draw_end_game_text(screen, text)
 
         clock.tick(MAX_FPS)

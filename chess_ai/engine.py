@@ -143,6 +143,14 @@ class GameState:
         # position since the start, so undo_move restores it by popping.
         self.zobrist_key = self.compute_zobrist_key()
         self.zobrist_log = [self.zobrist_key]
+        # Plies since the last capture or pawn move (fifty-move rule), and the
+        # move number, which grows after each Black move.
+        self.halfmove_clock = 0
+        self.halfmove_log = [0]
+        self.fullmove_number = 1
+        # Set by update_game_status(): "threefold repetition", "fifty-move
+        # rule", "insufficient material" or None.
+        self.draw_reason = None
 
     def compute_zobrist_key(self):
         """The Zobrist key of the position, computed from scratch."""
@@ -163,16 +171,22 @@ class GameState:
     def from_fen(cls, fen):
         """Return a new GameState set up from a FEN string.
 
-        Reads piece placement, side to move, castling rights and the en-passant
-        square. The halfmove clock and fullmove number may be present but are
-        ignored, because the engine does not track them yet.
+        All six fields are read; the halfmove clock and fullmove number may be
+        left out (they default to 0 and 1).
 
         Raises ValueError if the FEN is malformed.
         """
         fields = fen.split()
-        if len(fields) < 4:
-            raise ValueError(f"FEN needs at least 4 fields: {fen!r}")
+        if not 4 <= len(fields) <= 6:
+            raise ValueError(f"FEN needs 4 to 6 fields: {fen!r}")
         placement, side, castling, en_passant = fields[:4]
+        try:
+            halfmove_clock = int(fields[4]) if len(fields) > 4 else 0
+            fullmove_number = int(fields[5]) if len(fields) > 5 else 1
+        except ValueError:
+            raise ValueError(f"invalid FEN move counters: {fen!r}") from None
+        if halfmove_clock < 0 or fullmove_number < 1:
+            raise ValueError(f"invalid FEN move counters: {fen!r}")
 
         ranks = placement.split("/")
         if len(ranks) != 8:
@@ -236,15 +250,13 @@ class GameState:
         gs.en_passant_log = [en_passant_square]
         gs.zobrist_key = gs.compute_zobrist_key()
         gs.zobrist_log = [gs.zobrist_key]
+        gs.halfmove_clock = halfmove_clock
+        gs.halfmove_log = [halfmove_clock]
+        gs.fullmove_number = fullmove_number
         return gs
 
     def to_fen(self):
-        """Return the position as FEN: piece placement, side to move, castling
-        rights and en-passant square.
-
-        The halfmove clock and fullmove number are left out because the engine
-        does not track them yet.
-        """
+        """Return the position as a full six-field FEN string."""
         ranks = []
         for row in self.board:
             rank, empty = "", 0
@@ -272,7 +284,10 @@ class GameState:
         else:
             en_passant = "-"
         side = "w" if self.white_to_move else "b"
-        return f"{'/'.join(ranks)} {side} {castling or '-'} {en_passant}"
+        return (
+            f"{'/'.join(ranks)} {side} {castling or '-'} {en_passant} "
+            f"{self.halfmove_clock} {self.fullmove_number}"
+        )
 
     def make_move(self, move):
         """Play `move` and update turn, king squares, en passant, castling rights
@@ -336,6 +351,13 @@ class GameState:
         )
         self.zobrist_key = self._key_after(move, old_hash_state)
         self.zobrist_log.append(self.zobrist_key)
+        if move.piece_moved[1] == "p" or move.piece_captured != "--":
+            self.halfmove_clock = 0  # irreversible: the fifty-move count restarts
+        else:
+            self.halfmove_clock += 1
+        self.halfmove_log.append(self.halfmove_clock)
+        if self.white_to_move:  # Black has just moved
+            self.fullmove_number += 1
 
     def _key_after(self, move, old_hash_state):
         """Zobrist key after `move` (already played), from the previous key.
@@ -391,6 +413,11 @@ class GameState:
             self.en_passant_square = self.en_passant_log[-1]
             self.zobrist_log.pop()
             self.zobrist_key = self.zobrist_log[-1]
+            self.halfmove_log.pop()
+            self.halfmove_clock = self.halfmove_log[-1]
+            if not self.white_to_move:  # the move taken back was Black's
+                self.fullmove_number -= 1
+            self.draw_reason = None
             # undo the castle rights
             # first get rid of the new castle rights from the move we're undoing
             self.castling_rights_log.pop()
@@ -535,6 +562,55 @@ class GameState:
         in_check = not legal_moves and self.in_check()
         self.checkmate = in_check
         self.stalemate = not legal_moves and not in_check
+        # A checkmate on the move that reaches a draw condition still wins.
+        game_over = self.checkmate or self.stalemate
+        self.draw_reason = None if game_over else self.draw_by_rule()
+
+    def draw_by_rule(self):
+        """Why the position is drawn by rule, or None: "insufficient material",
+        "fifty-move rule" or "threefold repetition". (Checkmate and stalemate
+        are separate; see update_game_status.)"""
+        if self.is_insufficient_material():
+            return "insufficient material"
+        if self.halfmove_clock >= 100:
+            return "fifty-move rule"
+        if self.repetition_count() >= 3:
+            return "threefold repetition"
+        return None
+
+    def repetition_count(self):
+        """How often the current position has occurred, this time included.
+
+        Uses the Zobrist key log, looking back only to the last capture or
+        pawn move (nothing earlier can repeat) and only at positions with the
+        same side to move.
+        """
+        log, key = self.zobrist_log, self.zobrist_key
+        last = len(log) - 1
+        oldest = max(last - self.halfmove_clock, 0)
+        return 1 + sum(log[i] == key for i in range(last - 2, oldest - 1, -2))
+
+    def is_insufficient_material(self):
+        """Neither side can possibly checkmate: K v K, K + one minor piece v K,
+        or K + B v K + B with both bishops on squares of the same colour."""
+        minors = []
+        for r, row in enumerate(self.board):
+            for c, square in enumerate(row):
+                if square == "--" or square[1] == "K":
+                    continue
+                if square[1] in "pRQ":
+                    return False
+                minors.append((square, (r + c) % 2))
+        if len(minors) <= 1:
+            return True
+        if len(minors) == 2:
+            (first, first_colour), (second, second_colour) = minors
+            return (
+                first[1] == second[1] == "B"
+                and first[0] != second[0]
+                and first_colour == second_colour
+            )
+        return False
 
     def in_check(self):
         """True if the side to move is in check."""

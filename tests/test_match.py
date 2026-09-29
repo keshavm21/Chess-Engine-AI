@@ -25,23 +25,26 @@ def test_illegal_opening_is_rejected():
         match.opening_position("e2e5")
 
 
-def result_of(fen, repetitions=1, halfmove_clock=0, plies=0, max_plies=200):
-    gs = GameState.from_fen(fen)
-    return match.game_result(
-        gs, gs.get_legal_moves(), repetitions, halfmove_clock, plies, max_plies
-    )
+def result_of(gs, plies=0, max_plies=200):
+    if isinstance(gs, str):
+        gs = GameState.from_fen(gs)
+    return match.game_result(gs, gs.get_legal_moves(), plies, max_plies)
 
 
-def test_game_result_rules():
+def test_game_result_rules(legal_move):
     assert result_of("3R2k1/5ppp/8/8/8/8/8/6K1 b - -") == ("1-0", "checkmate")
     assert result_of("7k/8/6QK/8/8/8/8/8 b - -") == ("1/2-1/2", "stalemate")
     assert result_of("4k3/8/8/8/8/8/8/4K3 w - -")[1] == "insufficient material"
     assert result_of("4k3/8/8/8/8/8/8/2B1K3 w - -")[1] == "insufficient material"
     start = "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq -"
     assert result_of(start) is None
-    assert result_of(start, repetitions=3)[1] == "threefold repetition"
-    assert result_of(start, halfmove_clock=100)[1] == "fifty-move rule"
+    assert result_of(start + " 100 60")[1] == "fifty-move rule"
     assert result_of(start, plies=200) == ("1/2-1/2", "move limit")
+    gs = GameState()
+    for _ in range(2):  # knights out and back twice: the start position again
+        for move in ("g1f3", "g8f6", "f3g1", "f6g8"):
+            gs.make_move(legal_move(gs, move))
+    assert result_of(gs)[1] == "threefold repetition"
 
 
 def test_move_limit_is_adjudicated_on_material():

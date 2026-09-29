@@ -4,7 +4,7 @@ Self-play match between two engine configurations.
 Every opening is played twice with the colours swapped, so neither engine
 profits from a better opening position. A game ends by checkmate or stalemate,
 by threefold repetition, the fifty-move rule or insufficient material (the
-match detects these itself), or at a move limit: then the side that is at
+engine's draw rules), or at a move limit: then the side that is at
 least a rook ahead in material is awarded the win, otherwise it is a draw.
 
 Run with:
@@ -17,7 +17,6 @@ import json
 import math
 import multiprocessing
 import sys
-from collections import Counter
 
 from chess_ai import search
 from chess_ai.engine import GameState
@@ -71,25 +70,16 @@ def material_balance(board):
     )
 
 
-def insufficient_material(board):
-    """True for K v K and K + one minor piece v K (no checkmate is possible)."""
-    pieces = [sq[1] for row in board for sq in row if sq != "--" and sq[1] != "K"]
-    return not pieces or (len(pieces) == 1 and pieces[0] in "NB")
-
-
-def game_result(gs, legal_moves, repetitions, halfmove_clock, plies, max_plies):
+def game_result(gs, legal_moves, plies, max_plies):
     """(result, reason) if the game is over, else None. Results are "1-0",
     "0-1" or "1/2-1/2"."""
     if not legal_moves:
         if gs.in_check():
             return ("0-1" if gs.white_to_move else "1-0"), "checkmate"
         return "1/2-1/2", "stalemate"
-    if repetitions >= 3:
-        return "1/2-1/2", "threefold repetition"
-    if halfmove_clock >= 100:
-        return "1/2-1/2", "fifty-move rule"
-    if insufficient_material(gs.board):
-        return "1/2-1/2", "insufficient material"
+    reason = gs.draw_by_rule()
+    if reason:
+        return "1/2-1/2", reason
     if plies >= max_plies:
         balance = material_balance(gs.board)
         if balance >= 5:
@@ -106,23 +96,17 @@ def play_game(white, black, opening, limits, max_plies=200):
     such as {"time_limit": 0.3}."""
     name, moves = opening
     gs = opening_position(moves)
-    seen = Counter([gs.to_fen()])
-    halfmove_clock, played = 0, []
+    played = []
     while True:
         legal_moves = gs.get_legal_moves()
-        over = game_result(
-            gs, legal_moves, seen[gs.to_fen()], halfmove_clock, len(played), max_plies
-        )
+        over = game_result(gs, legal_moves, len(played), max_plies)
         if over:
             break
         config = white if gs.white_to_move else black
         searcher = search.Searcher(**{**limits, **CONFIGS[config]})
         move = searcher.search(gs, legal_moves).move
-        irreversible = move.piece_moved[1] == "p" or move.is_capture
         gs.make_move(move)
         played.append(move.coordinate_notation())
-        halfmove_clock = 0 if irreversible else halfmove_clock + 1
-        seen[gs.to_fen()] += 1
     result, reason = over
     return {
         "opening": name,
