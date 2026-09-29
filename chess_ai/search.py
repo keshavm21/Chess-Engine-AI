@@ -12,6 +12,8 @@ from dataclasses import dataclass
 
 from chess_ai.evaluation import CHECKMATE, PIECE_VALUES, STALEMATE, evaluate
 
+DRAW = 0
+
 MAX_DEPTH = 3  # default search depth in plies: raise for strength, lower for speed
 # Safety cap on the depth of a time-limited search.
 MAX_SEARCH_DEPTH = 30
@@ -96,6 +98,17 @@ def _capture_order(move):
     victim = ORDER_VALUES[move.piece_captured[1]] if move.is_capture else 0
     promotion = ORDER_VALUES[move.promotion_piece] if move.promotion_piece else 0
     return 10 * (victim + promotion) - ORDER_VALUES[move.piece_moved[1]]
+
+
+def _is_draw(gs):
+    """Drawn by rule, as the search sees it: the fifty-move rule, insufficient
+    material, or any repetition -- a position that has occurred before can be
+    repeated again, so it is scored as a draw (not only at the third time)."""
+    return (
+        gs.halfmove_clock >= 100
+        or gs.repetition_count() >= 2
+        or gs.is_insufficient_material()
+    )
 
 
 def _is_opening_phase(gs):
@@ -246,6 +259,9 @@ class Searcher:
         # set as a side effect of move generation).
         if not legal_moves:
             return -(CHECKMATE - ply) if gs.in_check() else STALEMATE
+        # Draws by rule; not at the root, where a move must still be chosen.
+        if ply > 0 and _is_draw(gs):
+            return DRAW
         if depth == 0:
             if self.quiescence:
                 return self._quiesce(gs, alpha, beta, color, ply, legal_moves)
@@ -305,6 +321,8 @@ class Searcher:
             if not moves:
                 return -(CHECKMATE - ply)
             best_score = -math.inf
+        elif gs.is_insufficient_material():
+            return DRAW  # e.g. the last pawn was just captured in K+N v K+P
         else:
             best_score = color * self.evaluate(gs)  # stand pat
             if best_score >= beta:
@@ -360,6 +378,8 @@ def evaluate_position(gs, legal_moves=None):
     stalemate are recognised."""
     if legal_moves is None:
         legal_moves = gs.get_legal_moves()
+    if legal_moves and gs.draw_by_rule():
+        return DRAW
     return Searcher().search_depth(gs, legal_moves, 0)[1]
 
 
