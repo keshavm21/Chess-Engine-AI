@@ -306,15 +306,32 @@ docs: record Phase 7 results and update guides
 
 **Verification:** SAN and notation unit tests (engine level). Full GUI smoke test, playing as both colours and at every difficulty.
 
-**Planned commits:**
+**Outcome (2026-09-29):**
+- **Tests:** 376 pass (82 new). The GUI is tested on pygame's dummy driver by feeding events to the `App`, with a fake AI process that runs the real search target.
+- **SAN (B6):** `GameState.san()` reproduces the published score of a complete game (Morphy's Opera Game), gives every legal move a distinct SAN in 150 random positions, and leaves the position unchanged. Mutation checks: no disambiguation, pins ignored, missing `+`/`#` and unrestored flags are each caught.
+- **App state machine (F12):** the refactor passed the unchanged end-to-end repetition tests before any feature was added. Animation became a state instead of a blocking loop, so quit, undo and new game work mid-animation.
+- **AI lifecycle (F9, G9, G10):** quitting while the AI thinks now takes **0.07 s** instead of **1.95 s** (measured with a headless driver; up to the whole 5 s "hard" budget before). The search process is a daemon, and it is terminated and joined on quit, undo and new game. No "AI thinking…" prints and no pygame banner. A per-process probe showed the child imports neither pygame nor the GUI.
+- **Smoke test:** driven headlessly with the real AI process, as White and as Black at each level: easy reached depth 2 at once, medium depth 4 in 2.0 s, hard depth 5 in 5.0 s; the board flips for Black and the AI opens.
+- **Also done:** the *(Could)* items, drag and drop (F10) and help lines in the panel (F11).
+
+Notes:
+- **AI protocol:** the child process now runs `search.search_to_queue`, which returns the whole `SearchResult` (for the status line), or `None` if the search raised. `find_best_move` lost its `return_queue` parameter (only the GUI used it). If the process ends without an answer, the GUI plays a random legal move; before, `queue.get()` could wait forever.
+- **Board palette:** the white/grey board became wood tones, to go with the new marks (last-move and selection tints, dots and rings for targets, a red glow for check). The result text got a dark band behind it, because the old grey text was hard to read over the pieces.
+- **Harness:** `play_scripted_game` now plays either colour, clicks the real "Black" button, and waits for a game-ending move's animation to finish.
+
+**Commits:**
 ```
-refactor: restructure GUI main loop into an App state machine
-fix: terminate the AI process cleanly on quit, reset and undo
-feat: add promotion piece picker
-feat: highlight last move and king in check, draw board coordinates
-feat: add new-game options for side and difficulty
-feat: add status line with search information
-feat: show SAN move log with scrolling
+feat: write moves in standard algebraic notation
+refactor: restructure the GUI main loop into an App state machine
+fix: stop the AI process cleanly on quit, undo and new game
+feat: add a promotion piece picker
+feat: highlight the last move and a king in check, draw board coordinates
+feat: add new-game options for side and AI level
+feat: show the AI's search in a status line
+feat: show the moves in SAN in a scrolling move log
+feat: move pieces by drag and drop, add help to the side panel
+feat: show the game result on a banner over the board
+docs: record Phase 8 results and update guides
 ```
 
 ---

@@ -3,7 +3,7 @@
 A snapshot of the repository as it is today, before the improvement work starts.
 Every finding in this document was checked against the code or by running it. Anything I only inferred from reading the code is labelled *(from reading the code)* or *(not yet verified)*.
 
-> **Status:** Phase 3 fixed R1, R2, R5, R6, S1, G1 and G4 (marked ✅ below); G2 and G3 are partly fixed (🔶). Phase 4 found and fixed R7, and made move generation and search 11–15× faster (see [benchmarks](../benchmarks.md)). Phase 6 replaced the evaluation (E1–E8, G5) and added quiescence (S2). Phase 7 added the draw rules (R3, G8). A late-repetition bug in them (R8) was fixed right after.
+> **Status:** Phase 3 fixed R1, R2, R5, R6, S1, G1 and G4 (marked ✅ below). Phase 4 found and fixed R7, and made move generation and search 11–15× faster (see [benchmarks](../benchmarks.md)). Phase 6 replaced the evaluation (E1–E8, G5) and added quiescence (S2). Phase 7 added the draw rules (R3, G8). A late-repetition bug in them (R8) was fixed right after. Phase 8 fixed the remaining GUI findings (G2, G3, G6, G7, G9, G10).
 >
 > **Note:** this is a snapshot from before Phase 2. File and function names here are the old ones (`chessEngine.py`, `getValidMoves`, …). Phase 2 moved the code into the `chess_ai/` package and renamed identifiers to PEP 8; the bugs listed here are otherwise unchanged until the phase that fixes them.
 
@@ -161,15 +161,15 @@ The terms are: material + piece-square tables, bishop pair, rooks on open files,
 | # | Issue | Evidence |
 |---|---|---|
 | G1 ✅ *fixed in Phase 3* | **Undo against the AI doesn't really work.** Pressing Z undoes only the AI's move. The `moveUndone` guard is reset in the same frame, so the AI immediately moves again. To get back to your own move you have to press Z a second time *while the AI is thinking*. | From reading the code |
-| G2 🔶 *engine supports all promotions since Phase 3; the GUI picker is Phase 8* | Promotion always produces a queen, with no picker (see R1). | Code |
-| G3 🔶 *rank 8 and promotion suffix fixed in Phase 3; `+`/`#`, disambiguation and scrolling remain (Phase 8)* | Move log shows rank 8 as `0` (R2), has no `+`/`#`, no promotion suffix and no disambiguation. It doesn't scroll, so long games run off the panel. | Code |
+| G2 ✅ *fixed in Phase 8 (engine since Phase 3)* | Promotion always produces a queen, with no picker (see R1). | Code |
+| G3 ✅ *fixed in Phase 8 (rank 8 and promotion suffix in Phase 3)* | Move log shows rank 8 as `0` (R2), has no `+`/`#`, no promotion suffix and no disambiguation. It doesn't scroll, so long games run off the panel. | Code |
 | G4 ✅ *fixed in Phase 3* | End-of-game text is shifted 40 px right of centre (`EVAL_BAR_WIDTH` is added twice in `drawEndGameText`). | From reading the code |
 | G5 ✅ *fixed in Phase 6* | Eval bar uses a separate evaluator (E7). | Code |
-| G6 | No highlighting of the last move or of a king in check, and no board coordinates. | Code |
-| G7 | You can't choose your side (always White), a difficulty, or a time limit, and there's no board flip. | Code |
+| G6 ✅ *fixed in Phase 8* | No highlighting of the last move or of a king in check, and no board coordinates. | Code |
+| G7 ✅ *fixed in Phase 8* | You can't choose your side (always White), a difficulty, or a time limit, and there's no board flip. | Code |
 | G8 ✅ *fixed in Phase 7* | No draw detection (R3), so the game never ends in dead-drawn positions. | Code |
-| G9 | ~~Closing the window while the AI is thinking keeps the app alive until the search finishes.~~ **Not reproduced:** checked in Phase 2 by quitting mid-search with a headless GUI driver, and the app exited within 0.3 s. | Checked 2026-09-28 (macOS, Python 3.12) |
-| G10 | Every AI move re-imports `chessMain` in the child process, which prints the pygame banner and "AI thinking…" / "AI done thinking" to the console. | Seen during runs / code |
+| G9 ✅ *reproduced and fixed in Phase 8* | Closing the window while the AI is thinking keeps the app alive until the search finishes. Not reproduced in Phase 2 (exit within 0.3 s), but with Phase 5's time-limited search it was real: the program lived on (window frozen) for the rest of the search, 1.95 s in a measured case and up to the 5 s "hard" budget, because the non-daemon child was joined at exit. | Checked 2026-09-28 and 2026-09-29 (macOS, Python 3.12) |
+| G10 ✅ *fixed in Phase 8* | Every AI move re-imports `chessMain` in the child process, which prints the pygame banner and "AI thinking…" / "AI done thinking" to the console. Since Phase 2 (`python -m chess_ai`) the child no longer imports the GUI (checked with a per-process import probe); the prints and the banner were removed in Phase 8. | Seen during runs / code |
 
 ---
 
