@@ -127,9 +127,9 @@ def run_search(max_depth=None, time_limit=None):
         title = f"Search, {time_limit:g} s per position"
     print(
         f"{title:<42} {'Time':>7} {'Depth':>5} {'Nodes':>8} {'NPS':>7} "
-        f"{'Cutoffs':>7} {'Move':>6}"
+        f"{'Cutoffs':>7} {'TT hits':>7} {'Move':>6}"
     )
-    print("-" * 88)
+    print("-" * 96)
     results = []
     for name, fen in SEARCH_POSITIONS:
         gs = GameState.from_fen(fen)
@@ -148,6 +148,8 @@ def run_search(max_depth=None, time_limit=None):
                 "nodes": result.nodes,
                 "nps": result.nodes_per_second,
                 "cutoffs": result.cutoffs,
+                "qnodes": result.qnodes,
+                "tt_hits": result.tt_hits,
                 "timed_out": result.timed_out,
                 "move": move,
             }
@@ -155,12 +157,12 @@ def run_search(max_depth=None, time_limit=None):
         print(
             f"{name:<42} {result.elapsed:>6.2f}s {result.depth:>5} "
             f"{result.nodes:>8,} {result.nodes_per_second:>7,} "
-            f"{result.cutoffs:>7,} {move:>6}"
+            f"{result.cutoffs:>7,} {result.tt_hits:>7,} {move:>6}"
         )
 
     total_nodes = sum(r["nodes"] for r in results)
     total_time = sum(r["time_s"] for r in results)
-    print("-" * 88)
+    print("-" * 96)
     print(
         f"{'Total':<42} {total_time:>6.2f}s {'':>5} {total_nodes:>8,} "
         f"{per_second(total_nodes, total_time):>7,}"

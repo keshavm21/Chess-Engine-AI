@@ -14,6 +14,11 @@ from chess_ai.evaluation import CHECKMATE, PIECE_VALUES, STALEMATE, evaluate
 
 DRAW = 0
 
+# Transposition table entry bounds: the stored score is exact, or only a lower
+# bound (the search failed high) or an upper bound (it failed low).
+EXACT, LOWER_BOUND, UPPER_BOUND = 0, 1, 2
+TT_MAX_ENTRIES = 200_000  # about 40 MB; the table is cleared when it is full
+
 MAX_DEPTH = 3  # default search depth in plies: raise for strength, lower for speed
 # Safety cap on the depth of a time-limited search.
 MAX_SEARCH_DEPTH = 30
@@ -100,6 +105,24 @@ def _capture_order(move):
     return 10 * (victim + promotion) - ORDER_VALUES[move.piece_moved[1]]
 
 
+def _score_to_tt(score, ply):
+    """Mate scores count plies from the root; in the table they are stored
+    relative to the node, so they stay right when reached along another path."""
+    if score >= MATE_THRESHOLD:
+        return score + ply
+    if score <= -MATE_THRESHOLD:
+        return score - ply
+    return score
+
+
+def _score_from_tt(score, ply):
+    if score >= MATE_THRESHOLD:
+        return score - ply
+    if score <= -MATE_THRESHOLD:
+        return score + ply
+    return score
+
+
 def _is_draw(gs):
     """Drawn by rule, as the search sees it: the fifty-move rule, insufficient
     material, or any repetition -- a position that has occurred before can be
@@ -134,6 +157,7 @@ class SearchResult:
     elapsed: float  # seconds
     timed_out: bool = False  # a deeper search was started but cut short
     qnodes: int = 0  # of `nodes`, those visited by the quiescence search
+    tt_hits: int = 0  # nodes answered from the transposition table
 
     @property
     def nodes_per_second(self):
@@ -154,7 +178,12 @@ class Searcher:
     """
 
     def __init__(
-        self, max_depth=None, time_limit=None, evaluator=None, quiescence=True
+        self,
+        max_depth=None,
+        time_limit=None,
+        evaluator=None,
+        quiescence=True,
+        transposition_table=True,
     ):
         if max_depth is None:
             max_depth = MAX_DEPTH if time_limit is None else MAX_SEARCH_DEPTH
@@ -164,6 +193,10 @@ class Searcher:
         self.evaluate = evaluator if evaluator is not None else evaluate
         # Play out captures at the leaves instead of evaluating mid-exchange.
         self.quiescence = quiescence
+        # Zobrist key -> (depth, score, bound, best move). Kept across the
+        # iterations of a search (and across searches by the same Searcher).
+        self.tt = {} if transposition_table else None
+        self.tt_hits = 0
         self.nodes = 0
         self.qnodes = 0
         self.cutoffs = 0
@@ -176,7 +209,7 @@ class Searcher:
         start = time.perf_counter()
         if legal_moves is None:
             legal_moves = gs.get_legal_moves()
-        self.nodes = self.qnodes = self.cutoffs = 0
+        self.nodes = self.qnodes = self.cutoffs = self.tt_hits = 0
 
         # No move, or a single legal move: nothing to decide. Two or three
         # legal moves are a real decision (often the only replies to a
@@ -223,6 +256,7 @@ class Searcher:
             time.perf_counter() - start,
             timed_out,
             self.qnodes,
+            self.tt_hits,
         )
 
     def search_depth(self, gs, legal_moves, depth, first_move=None):
@@ -267,6 +301,25 @@ class Searcher:
                 return self._quiesce(gs, alpha, beta, color, ply, legal_moves)
             return color * self.evaluate(gs)
 
+        # Transposition table: reuse a result from an earlier search of this
+        # position when it was searched at least as deep and its bound decides
+        # this node; otherwise its best move is at least searched first.
+        alpha_original = alpha
+        tt_move = None
+        if self.tt is not None:
+            entry = self.tt.get(gs.zobrist_key)
+            if entry is not None:
+                entry_depth, entry_score, bound, tt_move = entry
+                if ply > 0 and entry_depth >= depth:
+                    score = _score_from_tt(entry_score, ply)
+                    if (
+                        bound == EXACT
+                        or (bound == LOWER_BOUND and score >= beta)
+                        or (bound == UPPER_BOUND and score <= alpha)
+                    ):
+                        self.tt_hits += 1
+                        return score
+
         # Sort moves at the top two plies for better pruning
         if ply <= 1:
             moves = sorted(
@@ -280,8 +333,12 @@ class Searcher:
         else:
             # Deeper down only a cheap ordering: captures first (MVV-LVA).
             moves = sorted(legal_moves, key=_capture_order, reverse=True)
+        first = self._first_root_move if ply == 0 else None
+        if tt_move is not None and first is None and tt_move in moves:
+            moves.remove(tt_move)
+            moves.insert(0, tt_move)
 
-        best_score = -math.inf
+        best_score, best_move = -math.inf, None
         for move in moves:
             gs.make_move(move)
             next_moves = gs.get_legal_moves()
@@ -291,7 +348,7 @@ class Searcher:
             gs.undo_move()
 
             if score > best_score:
-                best_score = score
+                best_score, best_move = score, move
                 if ply == 0:
                     self._best_root_move = move
 
@@ -299,6 +356,22 @@ class Searcher:
             if alpha >= beta:
                 self.cutoffs += 1
                 break
+
+        if self.tt is not None:
+            if best_score <= alpha_original:
+                bound = UPPER_BOUND
+            elif best_score >= beta:
+                bound = LOWER_BOUND
+            else:
+                bound = EXACT
+            if len(self.tt) >= TT_MAX_ENTRIES:
+                self.tt.clear()
+            self.tt[gs.zobrist_key] = (
+                depth,
+                _score_to_tt(best_score, ply),
+                bound,
+                best_move,
+            )
         return best_score
 
     def _quiesce(self, gs, alpha, beta, color, ply, legal_moves=None):
