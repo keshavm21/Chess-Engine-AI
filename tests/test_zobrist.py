@@ -69,3 +69,19 @@ def test_undo_restores_the_key_and_the_history(legal_move):
     gs.undo_move()
     assert gs.zobrist_log == [GameState().zobrist_key]
     assert gs.zobrist_key == GameState().zobrist_key
+
+
+def test_an_unusable_en_passant_square_does_not_change_the_key():
+    """Only an en-passant capture that is really possible makes a position
+    different (FIDE 9.2.3)."""
+    none = GameState.from_fen("4k3/8/8/8/3P4/8/8/4K3 b - -").zobrist_key
+    unusable = GameState.from_fen("4k3/8/8/8/3P4/8/8/4K3 b - d3").zobrist_key
+    assert unusable == none
+    # A pawn next to it, but taking en passant would expose its king on the rank.
+    pinned_none = GameState.from_fen("8/8/8/8/k2Pp2R/8/8/4K3 b - -").zobrist_key
+    pinned = GameState.from_fen("8/8/8/8/k2Pp2R/8/8/4K3 b - d3").zobrist_key
+    assert pinned == pinned_none
+    # A capture that is possible still counts.
+    usable_none = GameState.from_fen("4k3/8/8/8/3Pp3/8/8/4K3 b - -").zobrist_key
+    usable = GameState.from_fen("4k3/8/8/8/3Pp3/8/8/4K3 b - d3").zobrist_key
+    assert usable != usable_none
