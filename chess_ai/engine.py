@@ -304,6 +304,65 @@ class GameState:
             f"{self.halfmove_clock} {self.fullmove_number}"
         )
 
+    def san(self, move, legal_moves=None):
+        """Standard algebraic notation of `move`, a legal move in the current
+        position (before it is played): "Nbd7", "exd6", "e8=N", "O-O+", "Ra8#".
+
+        The start square is only named when another piece of the same kind can
+        legally reach the same square. Pass the result of get_legal_moves() if
+        it is already known. The position is unchanged afterwards.
+        """
+        if move.is_castle:
+            text = "O-O" if move.end_col > move.start_col else "O-O-O"
+        else:
+            target = move.square_name(move.end_row, move.end_col)
+            capture = "x" if move.is_capture else ""
+            if move.piece_moved[1] == "p":
+                start_file = Move.COLS_TO_FILES[move.start_col] if capture else ""
+                text = start_file + capture + target
+                if move.is_promotion:
+                    text += "=" + move.promotion_piece
+            else:
+                if legal_moves is None:
+                    legal_moves = self.get_legal_moves()
+                text = (
+                    move.piece_moved[1]
+                    + self._san_start(move, legal_moves)
+                    + capture
+                    + target
+                )
+
+        # "+" or "#": play the move and look at the opponent's position. The
+        # game-over flags are saved because undo_move() clears them.
+        status = self.checkmate, self.stalemate, self.draw_reason
+        self.make_move(move)
+        if self.in_check():
+            text += "+" if self.get_legal_moves() else "#"
+        self.undo_move()
+        self.checkmate, self.stalemate, self.draw_reason = status
+        return text
+
+    def _san_start(self, move, legal_moves):
+        """What SAN needs of the start square to tell `move` apart from moves
+        of the other pieces of the same kind to the same square: nothing, the
+        file, the rank, or both."""
+        rivals = [
+            other
+            for other in legal_moves
+            if other.piece_moved == move.piece_moved
+            and (other.end_row, other.end_col) == (move.end_row, move.end_col)
+            and (other.start_row, other.start_col) != (move.start_row, move.start_col)
+        ]
+        if not rivals:
+            return ""
+        file = Move.COLS_TO_FILES[move.start_col]
+        rank = Move.ROWS_TO_RANKS[move.start_row]
+        if all(other.start_col != move.start_col for other in rivals):
+            return file
+        if all(other.start_row != move.start_row for other in rivals):
+            return rank
+        return file + rank
+
     def make_move(self, move):
         """Play `move` and update turn, king squares, en passant, castling rights
         and the Zobrist key."""
@@ -1002,9 +1061,8 @@ class Move:
             if self.is_promotion:
                 move_string += "=" + self.promotion_piece
             return move_string
-        # TODO: + for check, # for checkmate, and disambiguation when two
-        # pieces can move to the same square
-        # other piece moves, captures
+        # other piece moves, captures (without check marks or disambiguation,
+        # which need the position: see GameState.san)
         move_string = self.piece_moved[1]
         if self.is_capture:
             move_string += "x"

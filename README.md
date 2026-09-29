@@ -4,7 +4,7 @@ This is a fully functional **Chess Engine** written in Python using `pygame`. It
 
 - **Engine:** Handles move generation, validation, castling, en passant, promotion (including underpromotion), checkmate/stalemate, and draws by threefold repetition, the fifty-move rule and insufficient material.
 - **AI:** Minimax search (as negamax) with Alpha-Beta pruning, iterative deepening under a time limit (about 2 seconds per move by default), a quiescence search, move ordering, and a tapered positional evaluation.
-- **UI:** Graphical interface with move logging, valid move highlighting, and a live evaluation bar showing the engine's own evaluation.
+- **UI:** Graphical interface: play either colour against three AI levels, click or drag pieces, choose the promotion piece, see the last move, checks and legal moves highlighted, a move list in standard algebraic notation, the AI's search depth and score, and a live evaluation bar showing the engine's own evaluation.
 - **Platforms:** Developed on macOS; the test suite runs on Linux (Ubuntu) in CI. Windows is untested.
 
 ## Files
@@ -57,12 +57,15 @@ To start the game, run this from the project folder:
 python -m chess_ai
 ```
 
-A window will open showing the chess board. You play as White (bottom), and the AI plays as Black (top).
+A window will open showing the chess board. You play White by default. The side panel starts a new game as White or Black (playing Black turns the board around, and the AI moves first) and sets the AI level (easy, medium or hard; a change applies from the AI's next move).
 
 ## Controls
-- **Mouse Left Click:** Select a piece / Make a move
+- **Mouse:** click a piece, then the square to move it to, or drag it there. A pawn reaching the last rank opens a picker for the promotion piece.
 - **Z:** Undo your last move (against the AI, this also takes back the AI's reply)
-- **R:** Reset the board to the starting position
+- **R:** New game with the same side and level
+- **F:** Flip the board
+- **Esc:** Cancel a half-made move or close the promotion picker
+- **Mouse wheel:** Scroll through the move list
 
 ## AI & Heuristics
 The AI (`chess_ai/search.py` and `chess_ai/evaluation.py`) combines the following techniques.
@@ -83,7 +86,7 @@ The AI (`chess_ai/search.py` and `chess_ai/evaluation.py`) combines the followin
 - **King Safety:** a pawn shield in front of the king in the middlegame; the king centralises in the endgame
 
 ## Performance
-- **Time per move:** difficulty presets in `chess_ai/search.py` (easy 0.5 s, medium 2 s, hard 5 s); the GUI uses medium, which typically reaches 3–5 half-moves deep
+- **Time per move:** difficulty presets in `chess_ai/search.py` (easy 0.5 s, medium 2 s, hard 5 s); medium, the default, typically reaches 3–5 half-moves deep
 
 ## Features
 - Chess rules including special moves (castling, en passant, pawn promotion to any piece)
@@ -91,7 +94,7 @@ The AI (`chess_ai/search.py` and `chess_ai/evaluation.py`) combines the followin
 - Move validation and legal move generation
 - Visual feedback for valid moves
 - Move history with undo functionality
-- AI opponent with a time limit per move (difficulty presets in `chess_ai/search.py`; the GUI uses medium)
+- AI opponent with a time limit per move and three levels (easy, medium, hard), chosen in the GUI
 
 ## Running the Tests
 
@@ -104,7 +107,6 @@ python -m chess_ai.match default no-quiescence --jobs 4   # self-play match betw
 ```
 
 ## Known Limitations
-- In the GUI, pawns always promote to a queen (the engine and AI support all promotion pieces)
 - The AI usually uses its full time (about 2 seconds per move); it answers sooner when it finds a forced mate or has only one legal move. How deep it gets depends on the position and the machine
 
 ## License

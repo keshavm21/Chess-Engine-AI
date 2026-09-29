@@ -24,9 +24,9 @@ The plan for turning Chess-Engine-AI into a clean, well-tested portfolio project
 | 3 | Correctness fixes | ✅ Done (merged into `main`) |
 | 4 | Performance | ✅ Done (merged into `main`) |
 | 5 | Search framework (iterative deepening, time limit) | ✅ Done (merged into `main`) |
-| 6 | Quiescence search and new evaluation | ✅ Committed on `improve-chess-engine` (not yet merged into `main`) |
-| 7 | Hashing, draw rules, transposition table | 🔶 Implemented, awaiting review and merge |
-| 8 | GUI/UX and runtime robustness | ⬜ Not started |
+| 6 | Quiescence search and new evaluation | ✅ Done (merged into `main`) |
+| 7 | Hashing, draw rules, transposition table | ✅ Done (merged into `main`, with the R8 repetition fix) |
+| 8 | GUI/UX and runtime robustness | 🔶 Implemented, awaiting review and merge |
 | 9 | Release polish (v1.0) | ⬜ Not started |
 
 Update this table whenever a phase is merged into `main`.
