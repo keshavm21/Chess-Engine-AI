@@ -245,13 +245,15 @@ def draw_evaluation_bar(screen, evaluation, font, flipped=False):
 
 
 def draw_end_game_text(screen, text):
+    """The result in white with a dark shadow, centred on the board."""
     font = p.font.SysFont("Helvetica", 32, True, False)
-    text_object = font.render(text, 0, p.Color("Gray"))
+    label = font.render(text, True, (255, 255, 255))
+    shadow = font.render(text, True, (0, 0, 0))
+    both = p.Surface((label.get_width() + 2, label.get_height() + 2), p.SRCALPHA)
+    both.blit(shadow, (2, 2))
+    both.blit(label, (0, 0))
     board_centre = (EVAL_BAR_WIDTH + BOARD_WIDTH // 2, BOARD_HEIGHT // 2)
-    text_location = text_object.get_rect(center=board_centre)
-    screen.blit(text_object, text_location)
-    text_object = font.render(text, 0, p.Color("Black"))
-    screen.blit(text_object, text_location.move(2, 2))
+    screen.blit(both, both.get_rect(center=board_centre))
 
 
 def move_log_lines(sans, first_number=1, black_first=False):
@@ -656,6 +658,9 @@ class App:
         if self.drag is not None:
             self._draw_dragged_piece()
         if self.state == GAME_OVER:
+            band = p.Surface((BOARD_WIDTH, 2 * SQ_SIZE), p.SRCALPHA)
+            band.fill((0, 0, 0, 140))  # so the text stands out from the pieces
+            self.screen.blit(band, (BOARD_LEFT, BOARD_HEIGHT // 2 - SQ_SIZE))
             draw_end_game_text(self.screen, game_over_text(self.gs))
 
     def _draw_board(self):
@@ -762,7 +767,8 @@ class App:
         left = PANEL_LEFT + PANEL_PADDING
         columns = (left + 36, left + 46, left + 136)  # number (right edge), moves
         lines, first = self.visible_log_lines()
-        newest = len(self.san_log) - 1 + self.black_moved_first  # index in pairs
+        # The newest move's index in the list the lines are made of.
+        newest = len(self.san_log) - 1 + self.black_moved_first
         for i, (number, white, black) in enumerate(lines):
             y = LOG_TOP + i * LOG_LINE_HEIGHT
             label = font.render(number, True, MUTED_TEXT)
