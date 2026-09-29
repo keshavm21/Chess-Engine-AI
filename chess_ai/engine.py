@@ -44,10 +44,6 @@ def _castling_key(rights):
     return key
 
 
-def _en_passant_key(square):
-    return _EN_PASSANT_KEYS[square[1]] if square else 0
-
-
 # (row, col) steps used by attack detection.
 _KNIGHT_JUMPS = ((-2, -1), (-2, 1), (-1, -2), (-1, 2), (1, -2), (1, 2), (2, -1), (2, 1))
 _KING_STEPS = ((-1, -1), (-1, 0), (-1, 1), (0, -1), (0, 1), (1, -1), (1, 0), (1, 1))
@@ -161,11 +157,30 @@ class GameState:
                     key ^= _PIECE_KEYS[square][r][c]
         if not self.white_to_move:
             key ^= _BLACK_TO_MOVE_KEY
-        return (
-            key
-            ^ _castling_key(self.castling_rights)
-            ^ _en_passant_key(self.en_passant_square)
-        )
+        return key ^ _castling_key(self.castling_rights) ^ self._en_passant_hash()
+
+    def _en_passant_hash(self):
+        """The en-passant part of the Zobrist key: the file's number only when
+        an en-passant capture is really possible.
+
+        By the rules (FIDE 9.2.3) a position after a two-square pawn move is the
+        same as that position without the en-passant square unless a pawn can
+        legally take en passant; otherwise a repetition whose first occurrence
+        followed a two-square move would be counted one time too few.
+        """
+        if not self.en_passant_square:
+            return 0
+        r, c = self.en_passant_square
+        pawn_row = r + 1 if self.white_to_move else r - 1
+        pawn = ("w" if self.white_to_move else "b") + "p"
+        for pawn_col in (c - 1, c + 1):
+            if 0 <= pawn_col < 8 and self.board[pawn_row][pawn_col] == pawn:
+                capture = Move(
+                    (pawn_row, pawn_col), (r, c), self.board, is_en_passant=True
+                )
+                if not self._leaves_king_in_check(capture):
+                    return _EN_PASSANT_KEYS[c]
+        return 0
 
     @classmethod
     def from_fen(cls, fen):
@@ -292,9 +307,7 @@ class GameState:
     def make_move(self, move):
         """Play `move` and update turn, king squares, en passant, castling rights
         and the Zobrist key."""
-        old_hash_state = _castling_key(self.castling_rights) ^ _en_passant_key(
-            self.en_passant_square
-        )
+        old_hash_state = _castling_key(self.castling_rights) ^ self._en_passant_hash()
         self.board[move.start_row][move.start_col] = "--"
         self.board[move.end_row][move.end_col] = move.piece_moved
         # log the move, so we can undo it later or print a PNG for the game
@@ -367,7 +380,7 @@ class GameState:
         """
         key = self.zobrist_key ^ _BLACK_TO_MOVE_KEY
         key ^= old_hash_state ^ _castling_key(self.castling_rights)
-        key ^= _en_passant_key(self.en_passant_square)
+        key ^= self._en_passant_hash()
         start_r, start_c, end_r, end_c = (
             move.start_row,
             move.start_col,

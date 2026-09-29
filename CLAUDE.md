@@ -17,7 +17,7 @@ python -m chess_ai.benchmark          # perft + fixed-depth and 1 s timed search
 python -m chess_ai.tactics            # tactics suite solve rate at the default 2 s/move; --depth N for deterministic runs, --json PATH
 python -m chess_ai.match A B --jobs 4  # self-play match between configurations in match.CONFIGS (default, depth-1, no-quiescence, no-tt, no-history); --time S, --depth N
 
-pytest                                # full suite, ~55 s (this is what CI runs)
+pytest                                # full suite, ~60 s (this is what CI runs)
 pytest -m "not slow"                  # skips deep perft, exhaustive tactics checks and depth-4 comparisons, ~6 s
 pytest tests/test_search.py::test_single_legal_move_is_still_immediate   # a single test
 pytest "tests/test_perft.py::test_perft[kiwipete-d2]"                   # a single parametrized case
@@ -38,7 +38,7 @@ Package `chess_ai/`: `engine.py` (rules), `search.py` (iterative-deepening negam
 ### Board and move model (`engine.py`)
 - `GameState.board` is an 8×8 list of 2-char strings: color (`w`/`b`) plus piece (`K Q R B N p`; pawns are lowercase). Empty squares are `"--"`. Row 0 is Black's back rank (rank 8), and row 7 is White's.
 - `GameState.from_fen()` / `to_fen()` handle all six FEN fields (`halfmove_clock` and `fullmove_number` are tracked and restored by `undo_move`; the last two fields may be omitted when reading).
-- `zobrist_key` is a 64-bit Zobrist hash of pieces, side to move, castling rights and en-passant file, updated incrementally in `make_move` (`_key_after`) and restored from `zobrist_log` on undo; `compute_zobrist_key()` recomputes it from scratch (tests compare the two). Keys come from a fixed-seed RNG, so they are identical in every run.
+- `zobrist_key` is a 64-bit Zobrist hash of pieces, side to move, castling rights and en-passant file, updated incrementally in `make_move` (`_key_after`) and restored from `zobrist_log` on undo; `compute_zobrist_key()` recomputes it from scratch (tests compare the two). Keys come from a fixed-seed RNG, so they are identical in every run. The en-passant file is hashed only when an en-passant capture is legally possible (`_en_passant_hash`, FIDE 9.2.3); otherwise a repetition whose first occurrence followed a two-square pawn move would be counted one time too few (finding R8).
 - Draw rules: `repetition_count()` (from `zobrist_log`, back to the last capture/pawn move, same side to move), `is_insufficient_material()` (K v K, K+minor v K, K+B v K+B on same-coloured squares) and `halfmove_clock >= 100`. `draw_by_rule()` returns the reason; `update_game_status()` stores it in `draw_reason` (checkmate takes precedence) and `undo_move` clears it.
 - `Move` snapshots `piece_moved`/`piece_captured` from the board when it's constructed. Equality compares `move_id` (start/end squares) **and** `promotion_piece`.
 - Promotions: `_add_pawn_move` emits one move per piece in `PROMOTION_PIECES` (Q, R, B, N, queen first). `Move(...)` defaults `promotion_piece` to `"Q"` (it's `None` for non-promotions), so a move built from two GUI clicks matches only the queen promotion. `coordinate_notation()` is UCI style (`e7e8n`), and `str(move)` adds `=N`.
@@ -65,5 +65,5 @@ Package `chess_ai/`: `engine.py` (rules), `search.py` (iterative-deepening negam
 
 ### GUI (`gui.py`)
 - The pygame loop runs the AI in a `multiprocessing.Process` and passes a `Queue` as `return_queue`. The search limits come from `gui.AI_DIFFICULTY` (the default preset until Phase 8 adds a selector). The `GameState` is pickled into the child process. Undo and reset terminate the running AI process.
-- Undo goes through `take_back_move()`, which against the AI also takes back the AI's reply so the human is to move again. GUI logic that can be tested without a window lives in plain functions like this and is covered by `tests/test_gui.py` (pygame dummy video driver).
+- Undo goes through `take_back_move()`, which against the AI also takes back the AI's reply so the human is to move again. GUI logic that can be tested without a window lives in plain functions like this and is covered by `tests/test_gui.py` (pygame dummy video driver). `play_scripted_game()` in that file runs the real `gui.main()` loop headlessly with clicked White moves and a scripted stand-in for the AI process (used to check that draws are announced).
 - The evaluation bar shows `search.evaluate_position(gs) / 100` (pawns): the engine's own evaluation with captures played out, recomputed after every move.

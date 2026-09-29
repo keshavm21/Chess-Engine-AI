@@ -275,6 +275,7 @@ Notes:
 - The search scores **any** repeated position as a draw (standard engine practice), while the game rule needs three occurrences.
 - **FEN now has all six fields.** Tests that compared 4-field strings were updated, and the match tool uses the engine's draw rules instead of its own.
 - The optional opening book (D9) was not done.
+- **Follow-up fix (R8):** a game played on the Phase 6 code (the Phase 7 commits had landed on `main` only) never declared a repetition. That led to a real Phase 7 gap: the position key counted an en-passant square nobody could use, so a repetition whose first occurrence followed a two-square pawn move was counted one time too few. Fixed, with engine tests and an end-to-end game-window test (`play_scripted_game` in `tests/test_gui.py`), both confirmed to fail on the old code.
 
 **Commits:**
 ```

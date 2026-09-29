@@ -100,3 +100,18 @@ def test_checkmate_takes_precedence_over_the_fifty_move_rule(legal_move):
     gs.update_game_status()
     assert gs.checkmate is True
     assert gs.draw_reason is None
+
+
+def test_repetition_whose_first_occurrence_follows_a_two_square_pawn_move(legal_move):
+    """After 1.e4 no black pawn can take en passant, so the position after 1.e4
+    recurs after each knight shuffle: the third time (ply 9) is a draw.
+    Before the fix the en-passant square made the first occurrence look
+    different, so this position alone would only have been drawn at its fourth
+    occurrence (here the draw came one ply late, through another position)."""
+    gs = GameState()
+    play(gs, legal_move, "e2e4")
+    for _ in range(2):
+        play(gs, legal_move, "g8f6", "g1f3", "f6g8", "f3g1")
+    assert len(gs.move_log) == 9
+    assert gs.repetition_count() == 3
+    assert gs.draw_by_rule() == "threefold repetition"
