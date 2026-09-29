@@ -123,6 +123,11 @@ def _score_from_tt(score, ply):
     return score
 
 
+def _history_key(move):
+    """History scores are kept per moving piece and target square."""
+    return move.piece_moved, move.end_row, move.end_col
+
+
 def _is_draw(gs):
     """Drawn by rule, as the search sees it: the fifty-move rule, insufficient
     material, or any repetition -- a position that has occurred before can be
@@ -184,6 +189,7 @@ class Searcher:
         evaluator=None,
         quiescence=True,
         transposition_table=True,
+        history_ordering=True,
     ):
         if max_depth is None:
             max_depth = MAX_DEPTH if time_limit is None else MAX_SEARCH_DEPTH
@@ -197,6 +203,12 @@ class Searcher:
         # iterations of a search (and across searches by the same Searcher).
         self.tt = {} if transposition_table else None
         self.tt_hits = 0
+        # Quiet-move ordering: two "killer" moves per ply (quiet moves that
+        # recently caused a cutoff there) and a history score per piece and
+        # target square. Both are reset for every search.
+        self.history_ordering = history_ordering
+        self._killers = {}
+        self._history = {}
         self.nodes = 0
         self.qnodes = 0
         self.cutoffs = 0
@@ -210,6 +222,7 @@ class Searcher:
         if legal_moves is None:
             legal_moves = gs.get_legal_moves()
         self.nodes = self.qnodes = self.cutoffs = self.tt_hits = 0
+        self._killers, self._history = {}, {}
 
         # No move, or a single legal move: nothing to decide. Two or three
         # legal moves are a real decision (often the only replies to a
@@ -330,8 +343,16 @@ class Searcher:
             if ply == 0 and self._first_root_move in moves:
                 moves.remove(self._first_root_move)
                 moves.insert(0, self._first_root_move)
+        elif self.history_ordering:
+            # Deeper down a cheap ordering: captures (MVV-LVA), then killer
+            # moves, then the other quiet moves by their history score.
+            killers = self._killers.get(ply, ())
+            moves = sorted(
+                legal_moves,
+                key=lambda m: self._quiet_order(m, killers),
+                reverse=True,
+            )
         else:
-            # Deeper down only a cheap ordering: captures first (MVV-LVA).
             moves = sorted(legal_moves, key=_capture_order, reverse=True)
         first = self._first_root_move if ply == 0 else None
         if tt_move is not None and first is None and tt_move in moves:
@@ -355,6 +376,8 @@ class Searcher:
             alpha = max(alpha, score)
             if alpha >= beta:
                 self.cutoffs += 1
+                if self.history_ordering and not (move.is_capture or move.is_promotion):
+                    self._remember_quiet_cutoff(move, depth, ply)
                 break
 
         if self.tt is not None:
@@ -373,6 +396,23 @@ class Searcher:
                 best_move,
             )
         return best_score
+
+    def _quiet_order(self, move, killers):
+        """Sort key: captures and promotions first (MVV-LVA), then killers,
+        then quiet moves by history score."""
+        if move.is_capture or move.is_promotion:
+            return (2, _capture_order(move))
+        if move in killers:
+            return (1, -killers.index(move))
+        return (0, self._history.get(_history_key(move), 0))
+
+    def _remember_quiet_cutoff(self, move, depth, ply):
+        killers = self._killers.setdefault(ply, [])
+        if move not in killers:
+            killers.insert(0, move)
+            del killers[2:]
+        key = _history_key(move)
+        self._history[key] = self._history.get(key, 0) + depth * depth
 
     def _quiesce(self, gs, alpha, beta, color, ply, legal_moves=None):
         """Quiescence search: keep playing captures (and queen promotions) until

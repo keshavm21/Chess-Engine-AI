@@ -29,6 +29,7 @@ CONFIGS = {
     "depth-1": {"max_depth": 1},
     "no-quiescence": {"quiescence": False},
     "no-tt": {"transposition_table": False},
+    "no-history": {"history_ordering": False},
 }
 
 # Well-known openings (coordinate notation), roughly balanced for both sides.
