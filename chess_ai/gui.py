@@ -49,7 +49,14 @@ ANIMATION_FPS = 60  # while a piece slides
 # normally written it already, but it may have died without answering.
 AI_ANSWER_TIMEOUT = 1.0
 IMAGES = {}
-BOARD_COLORS = (p.Color("white"), p.Color("gray"))  # light, dark squares
+LIGHT_SQUARE = (240, 217, 181)
+DARK_SQUARE = (181, 136, 99)
+BOARD_COLORS = (LIGHT_SQUARE, DARK_SQUARE)  # (row + col) % 2 == 0 is light
+# Square marks (RGBA): see App.square_marks().
+LAST_MOVE_TINT = (205, 210, 60, 130)
+SELECTED_TINT = (20, 110, 40, 110)
+MOVE_HINT = (20, 85, 30, 100)  # dots and rings where the picked piece can go
+CHECK_GLOW = (230, 20, 20)
 
 # App states
 HUMAN_TURN = "human turn"
@@ -79,6 +86,27 @@ def square_rect(square):
     """The screen rectangle of the board square (row, col)."""
     row, col = square
     return p.Rect(BOARD_LEFT + col * SQ_SIZE, row * SQ_SIZE, SQ_SIZE, SQ_SIZE)
+
+
+def mark_surfaces():
+    """One transparent square-sized image per kind of square mark."""
+
+    def square():
+        return p.Surface((SQ_SIZE, SQ_SIZE), p.SRCALPHA)
+
+    centre = (SQ_SIZE // 2, SQ_SIZE // 2)
+    surfaces = {kind: square() for kind in ("last move", "selected", "move", "capture")}
+    surfaces["last move"].fill(LAST_MOVE_TINT)
+    surfaces["selected"].fill(SELECTED_TINT)
+    p.draw.circle(surfaces["move"], MOVE_HINT, centre, SQ_SIZE // 6)  # a dot
+    # A ring around a piece that can be taken.
+    p.draw.circle(surfaces["capture"], MOVE_HINT, centre, SQ_SIZE // 2, SQ_SIZE // 12)
+    # A red glow under a king in check, strongest in the middle.
+    surfaces["check"] = square()
+    for i in range(8):
+        radius = SQ_SIZE // 2 - i * SQ_SIZE // 20
+        p.draw.circle(surfaces["check"], (*CHECK_GLOW, 50 + 25 * i), centre, radius)
+    return surfaces
 
 
 def animation_seconds(move):
@@ -239,6 +267,16 @@ class App:
         self.clock = p.time.Clock()
         self.move_log_font = p.font.SysFont("Arial", 20, False, False)
         load_images()
+        self.marks = mark_surfaces()
+        # Coordinate labels in the colour of the other kind of square.
+        coordinate_font = p.font.SysFont("Arial", 12, bold=True)
+        self.coordinate_labels = {
+            (text, light): coordinate_font.render(
+                text, True, DARK_SQUARE if light else LIGHT_SQUARE
+            )
+            for text in "abcdefgh12345678"
+            for light in (True, False)
+        }
         # Who plays which side: a human or the AI.
         self.white_is_human = True
         self.black_is_human = False
@@ -440,11 +478,41 @@ class App:
 
     # ---------- Drawing ----------
 
+    def square_marks(self):
+        """The marked squares as (kind, square) pairs. The kinds: "last move"
+        (its start and end), "check" (a king in check), "selected" (the picked
+        piece), and "move" / "capture" (where the picked piece can go)."""
+        gs = self.gs
+        marks = []
+        if gs.move_log:
+            last = gs.move_log[-1]
+            marks.append(("last move", (last.start_row, last.start_col)))
+            marks.append(("last move", (last.end_row, last.end_col)))
+        if self.selected is not None:
+            marks.append(("selected", self.selected))
+            targets = {
+                (move.end_row, move.end_col): "capture" if move.is_capture else "move"
+                for move in self.legal_moves
+                if (move.start_row, move.start_col) == self.selected
+            }
+            marks += [(kind, square) for square, kind in targets.items()]
+        if gs.in_check():  # last, so that it shows over the other tints
+            king = (
+                gs.white_king_location if gs.white_to_move else gs.black_king_location
+            )
+            marks.append(("check", king))
+        return marks
+
     def draw(self):
         draw_evaluation_bar(self.screen, self.evaluation)
         self._draw_board()
-        self._draw_highlights()
+        marks = self.square_marks()
+        # Tints go under the pieces, move hints over them (a ring must show
+        # around the piece it can take).
+        self._draw_marks(marks, ("last move", "selected", "check"))
+        self._draw_coordinates()
         self._draw_pieces()
+        self._draw_marks(marks, ("move", "capture"))
         if self.state == ANIMATING:
             self._draw_animation()
         if self.state == PROMOTING:
@@ -458,18 +526,31 @@ class App:
             for c in range(DIMENSION):
                 p.draw.rect(self.screen, BOARD_COLORS[(r + c) % 2], square_rect((r, c)))
 
-    def _draw_highlights(self):
-        """Highlight the picked piece and the squares it can move to."""
-        if self.selected is None:
-            return
-        s = p.Surface((SQ_SIZE, SQ_SIZE))
-        s.set_alpha(100)  # zero value is full transparent and 255 means no transparency
-        s.fill(p.Color("blue"))
-        self.screen.blit(s, square_rect(self.selected))
-        s.fill(p.Color("yellow"))
-        for move in self.legal_moves:
-            if (move.start_row, move.start_col) == self.selected:
-                self.screen.blit(s, square_rect((move.end_row, move.end_col)))
+    def _draw_marks(self, marks, kinds):
+        for kind, square in marks:
+            if kind in kinds:
+                self.screen.blit(self.marks[kind], square_rect(square))
+
+    def _draw_coordinates(self):
+        """Rank numbers down the left edge of the board and file letters
+        along its bottom edge, whichever squares are shown there."""
+        for i in range(DIMENSION):
+            left_edge = square_at((BOARD_LEFT, i * SQ_SIZE))
+            bottom_edge = square_at((BOARD_LEFT + i * SQ_SIZE, BOARD_HEIGHT - 1))
+            for (row, col), is_rank in ((left_edge, True), (bottom_edge, False)):
+                text = str(8 - row) if is_rank else "abcdefgh"[col]
+                label = self.coordinate_labels[(text, (row + col) % 2 == 0)]
+                rect = square_rect((row, col))
+                if is_rank:
+                    self.screen.blit(label, (rect.x + 3, rect.y + 2))
+                else:
+                    self.screen.blit(
+                        label,
+                        (
+                            rect.right - label.get_width() - 3,
+                            rect.bottom - label.get_height(),
+                        ),
+                    )
 
     def _draw_pieces(self):
         # While a move slides into place, its target square shows what stood

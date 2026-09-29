@@ -321,6 +321,68 @@ class TestPromotionPicker:
         assert app.promotion_moves == []
 
 
+class TestSquareMarks:
+    """Finding G6: no last-move or check highlight."""
+
+    def test_the_last_move_is_marked(self, app):
+        assert app.square_marks() == []
+        click(app, "e2")
+        click(app, "e4")
+        assert app.square_marks() == [("last move", (6, 4)), ("last move", (4, 4))]
+
+    def test_the_last_move_is_drawn(self, app):
+        click(app, "e2")
+        click(app, "e4")
+        app.draw()
+        e2, d3 = gui.square_rect((6, 4)).center, gui.square_rect((5, 3)).center
+        assert app.screen.get_at(d3) == gui.LIGHT_SQUARE  # empty, not marked
+        assert app.screen.get_at(e2) != gui.LIGHT_SQUARE  # empty, but tinted
+
+    def test_a_king_in_check_is_marked(self, app):
+        app.new_game("4k3/8/8/8/8/8/8/4R1K1 b - -")
+        assert ("check", (0, 4)) in app.square_marks()
+
+    def test_the_picked_piece_shows_its_moves_and_captures(self, app):
+        app.new_game("4k3/8/8/3p4/4P3/8/8/4K3 w - -")
+        click(app, "e4")
+        assert sorted(app.square_marks()) == [
+            ("capture", (3, 3)),  # exd5
+            ("move", (3, 4)),  # e5
+            ("selected", (4, 4)),
+        ]
+
+    def test_a_promotion_square_is_marked_once(self, app):
+        app.new_game("4k3/P7/8/8/8/8/8/4K3 w - -")
+        click(app, "a7")
+        assert app.square_marks().count(("move", (0, 0))) == 1  # not 4 times
+
+    def test_drawing_every_state(self, app, ai_processes):
+        """Smoke test: every state draws without errors."""
+        app.new_game("4k3/P7/8/8/8/8/8/4K2R w K -")
+        click(app, "a7")
+        app.draw()  # a piece picked
+        click(app, "a8")
+        app.draw()  # the promotion picker
+        press(app, pygame.K_ESCAPE)
+        app.animate = True
+        click(app, "h1")
+        click(app, "h7")
+        app.draw()  # animating
+        app.new_game("4k3/8/8/8/8/8/8/4R1K1 b - -")
+        app.draw()  # a king in check
+        app.new_game("7k/5Q2/6K1/8/8/8/8/8 b - -")
+        app.draw()  # game over: stalemate
+        app.black_is_human = False
+        app.new_game()
+        click(app, "e2")
+        click(app, "e4")
+        app.update()  # the move slides into place ...
+        app.animation = (app.animation[0], 0.0)
+        app.update()  # ... and the AI starts thinking
+        assert app.state == gui.AI_THINKING
+        app.draw()
+
+
 def play_scripted_game(monkeypatch, moves, max_frames=600):
     """Run the real GUI loop (gui.main) headlessly. White's moves are clicked on
     the board; Black's come from a stand-in for the AI process. Returns the
