@@ -67,6 +67,8 @@ BUTTON_COLOR, BUTTON_HOVER, BUTTON_ACTIVE = (62, 59, 55), (82, 79, 74), (98, 138
 PANEL_PADDING = 14
 HEADLINE_Y, PLAYERS_Y, SEARCH_INFO_Y = 12, 38, 56
 LOG_TOP, LOG_BOTTOM = 84, 334
+LOG_LINE_HEIGHT = 22
+LOG_CAPACITY = (LOG_BOTTOM - LOG_TOP) // LOG_LINE_HEIGHT  # lines shown at once
 SIDE_LABEL_Y, SIDE_BUTTONS_Y = 344, 362
 LEVEL_LABEL_Y, LEVEL_BUTTONS_Y = 396, 414
 ACTION_BUTTONS_Y = 452
@@ -246,29 +248,19 @@ def draw_end_game_text(screen, text):
     screen.blit(text_object, text_location.move(2, 2))
 
 
-def draw_move_log(screen, gs, font, move_log_rect):
-    move_log = gs.move_log
-    move_texts = []
-    for i in range(0, len(move_log), 2):
-        move_string = str(i // 2 + 1) + ". " + str(move_log[i]) + " "
-        if i + 1 < len(move_log):
-            move_string += str(move_log[i + 1])
-        move_texts.append(move_string)
-    padding = 5
-    text_y = padding
-    line_spacing = 5
-    moves_per_row = 3
-    for i in range(0, len(move_texts), moves_per_row):
-        text = ""
-        for j in range(moves_per_row):
-            if i + j < len(move_texts):
-                text += move_texts[i + j] + "  "
-        text_object = font.render(text, True, TEXT_COLOR)
-        text_location = move_log_rect.move(padding, text_y)
-        screen.set_clip(move_log_rect)
-        screen.blit(text_object, text_location)
-        screen.set_clip(None)
-        text_y += text_object.get_height() + line_spacing
+def move_log_lines(sans, first_number=1, black_first=False):
+    """The moves (in SAN) as numbered lines of one move pair each, such as
+    ("12.", "Nf3", "Nc6"). A game that starts with Black to move begins with
+    ("<first_number>.", "...", <Black's move>)."""
+    moves = (["..."] if black_first else []) + list(sans)
+    return [
+        (
+            f"{first_number + i // 2}.",
+            moves[i],
+            moves[i + 1] if i + 1 < len(moves) else "",
+        )
+        for i in range(0, len(moves), 2)
+    ]
 
 
 class App:
@@ -279,7 +271,7 @@ class App:
         p.display.set_caption("Chess AI")
         self.screen = p.display.set_mode(WINDOW_SIZE)
         self.clock = p.time.Clock()
-        self.move_log_font = p.font.SysFont("Arial", 18, False, False)
+        self.move_log_font = p.font.SysFont("Arial", 16)
         self.eval_font = p.font.SysFont("Arial", 12, bold=True)
         self.headline_font = p.font.SysFont("Arial", 18, bold=True)
         self.detail_font = p.font.SysFont("Arial", 13)
@@ -329,6 +321,10 @@ class App:
             self.black_is_human = not human_plays_white
             self.flipped = not human_plays_white
         self.gs = GameState.from_fen(fen) if fen else GameState()
+        self.san_log = []  # the moves played, in standard algebraic notation
+        self.first_move_number = self.gs.fullmove_number
+        self.black_moved_first = not self.gs.white_to_move
+        self.log_scroll = 0  # lines scrolled back from the newest move
         self.last_search = None  # the SearchResult behind the AI's last move
         self._clear_input()
         self._position_changed()
@@ -337,6 +333,8 @@ class App:
         """Take back the last move; against the AI, back to the human's turn."""
         self._stop_ai()
         take_back_move(self.gs, self.white_is_human, self.black_is_human)
+        del self.san_log[len(self.gs.move_log) :]
+        self.log_scroll = 0
         self.last_search = None
         self._clear_input()
         self._position_changed()
@@ -366,6 +364,8 @@ class App:
 
     def _play(self, move):
         """Play a legal move for the side to move, then let it slide into place."""
+        self.san_log.append(self.gs.san(move, self.legal_moves))  # before the move
+        self.log_scroll = 0  # show the newest move
         self.gs.make_move(move)
         self._clear_input()
         if self.animate:
@@ -447,6 +447,8 @@ class App:
     def handle_event(self, event):
         if event.type == p.QUIT:
             self.running = False
+        elif event.type == p.MOUSEWHEEL:
+            self._scroll_log(event.y)
         elif event.type == p.MOUSEBUTTONDOWN and event.button == 1:
             self._on_press(event.pos)
         elif event.type == p.KEYDOWN:
@@ -464,6 +466,23 @@ class App:
         self._clear_input()
         if self.state == PROMOTING:
             self.state = HUMAN_TURN
+
+    def log_lines(self):
+        return move_log_lines(
+            self.san_log, self.first_move_number, self.black_moved_first
+        )
+
+    def _scroll_log(self, lines):
+        """Scroll the move log back (lines > 0) or forward (lines < 0)."""
+        most = max(0, len(self.log_lines()) - LOG_CAPACITY)
+        self.log_scroll = max(0, min(self.log_scroll + lines, most))
+
+    def visible_log_lines(self):
+        """The part of the move log the panel has room for, and the number of
+        the first line shown."""
+        lines = self.log_lines()
+        first = max(0, len(lines) - LOG_CAPACITY - self.log_scroll)
+        return lines[first : first + LOG_CAPACITY], first
 
     def _press_button(self, name):
         if name in ("white", "black"):
@@ -662,8 +681,7 @@ class App:
             screen.blit(font.render(text, True, color), (left, y))
         p.draw.line(screen, PANEL_LINE, (left, LOG_TOP - 6), (right, LOG_TOP - 6))
 
-        log_rect = p.Rect(PANEL_LEFT, LOG_TOP, PANEL_WIDTH, LOG_BOTTOM - LOG_TOP)
-        draw_move_log(screen, self.gs, self.move_log_font, log_rect)
+        self._draw_move_log()
 
         p.draw.line(screen, PANEL_LINE, (left, LOG_BOTTOM + 2), (right, LOG_BOTTOM + 2))
         screen.blit(self.panel_labels["New game as"], (left, SIDE_LABEL_Y))
@@ -682,6 +700,40 @@ class App:
             p.draw.rect(screen, color, rect, border_radius=6)
             label = self.button_labels[name]
             screen.blit(label, label.get_rect(center=rect.center))
+
+    def _draw_move_log(self):
+        """One numbered move pair per line; the newest move is highlighted."""
+        screen, font = self.screen, self.move_log_font
+        left = PANEL_LEFT + PANEL_PADDING
+        columns = (left + 36, left + 46, left + 136)  # number (right edge), moves
+        lines, first = self.visible_log_lines()
+        newest = len(self.san_log) - 1 + self.black_moved_first  # index in pairs
+        for i, (number, white, black) in enumerate(lines):
+            y = LOG_TOP + i * LOG_LINE_HEIGHT
+            label = font.render(number, True, MUTED_TEXT)
+            screen.blit(label, (columns[0] - label.get_width(), y))
+            for side, text in enumerate((white, black)):
+                if not text:
+                    continue
+                label = font.render(text, True, TEXT_COLOR)
+                x = columns[1 + side]
+                if 2 * (first + i) + side == newest:
+                    box = label.get_rect(topleft=(x, y)).inflate(10, 4)
+                    p.draw.rect(screen, BUTTON_ACTIVE, box, border_radius=4)
+                screen.blit(label, (x, y))
+
+        total = len(self.log_lines())
+        if total > LOG_CAPACITY:  # a scroll bar
+            track_x = PANEL_LEFT + PANEL_WIDTH - PANEL_PADDING // 2
+            track = LOG_CAPACITY * LOG_LINE_HEIGHT
+            thumb = max(12, track * LOG_CAPACITY // total)
+            thumb_y = LOG_TOP + (track - thumb) * first // (total - LOG_CAPACITY)
+            p.draw.line(
+                screen, PANEL_LINE, (track_x, LOG_TOP), (track_x, LOG_TOP + track), 3
+            )
+            p.draw.line(
+                screen, MUTED_TEXT, (track_x, thumb_y), (track_x, thumb_y + thumb), 3
+            )
 
     def _draw_promotion_picker(self):
         shade = p.Surface((BOARD_WIDTH, BOARD_HEIGHT), p.SRCALPHA)

@@ -533,6 +533,85 @@ class TestStatusLines:
         assert app.status_lines()[0] == "Stalemate"
 
 
+def test_move_log_lines():
+    assert gui.move_log_lines([]) == []
+    assert gui.move_log_lines(["e4", "e5", "Nf3"]) == [
+        ("1.", "e4", "e5"),
+        ("2.", "Nf3", ""),
+    ]
+    assert gui.move_log_lines(["Kd7", "Rh7+"], 40, black_first=True) == [
+        ("40.", "...", "Kd7"),
+        ("41.", "Rh7+", ""),
+    ]
+
+
+class TestMoveLog:
+    """Finding G3: the log had no check marks or disambiguation, and long games
+    ran off the panel."""
+
+    # Giuoco Piano, Moller attack: 1.e4 e5 2.Nf3 Nc6 3.Bc4 Bc5 4.c3 Nf6 5.d4
+    # exd4 6.cxd4 Bb4+ 7.Nc3 Nxe4 8.O-O Bxc3 9.d5 Bf6 10.Re1 Ne7 11.Rxe4 d6
+    # 12.Bg5 Bxg5 13.Nxg5 O-O
+    GAME = (
+        "e2e4 e7e5 g1f3 b8c6 f1c4 f8c5 c2c3 g8f6 d2d4 e5d4 c3d4 c5b4 b1c3 "
+        "f6e4 e1g1 b4c3 d4d5 c3f6 f1e1 c6e7 e1e4 d7d6 c1g5 f6g5 f3g5 e8g8"
+    ).split()
+    SAN = (
+        "e4 e5 Nf3 Nc6 Bc4 Bc5 c3 Nf6 d4 exd4 cxd4 Bb4+ Nc3 Nxe4 O-O Bxc3 "
+        "d5 Bf6 Re1 Ne7 Rxe4 d6 Bg5 Bxg5 Nxg5 O-O"
+    ).split()
+
+    def play(self, app, moves):
+        for move in moves:
+            click(app, move[:2])
+            click(app, move[2:4])
+
+    def test_moves_are_written_in_san(self, app):
+        self.play(app, self.GAME)
+        assert app.san_log == self.SAN
+        assert app.log_lines()[-1] == ("13.", "Nxg5", "O-O")
+
+    def test_the_ai_and_the_promotion_picker_write_san_too(self, app, ai_processes):
+        fen = "4k3/P7/8/8/8/8/8/4K3 w - -"
+        app.new_game(fen=fen)
+        app.black_is_human = False
+        self.play(app, ["a7a8"])
+        click(app, "a7")  # the rook, second in the picker
+        ai_processes[0].answer()
+        app.update()
+        promotion, reply = app.gs.move_log
+        replay = GameState.from_fen(fen)
+        replay.make_move(promotion)
+        assert app.san_log == ["a8=R+", replay.san(reply)]
+        assert app.san_log[1].startswith("K")  # the king must leave the check
+
+    def test_undo_takes_the_moves_off_the_log(self, app):
+        self.play(app, self.GAME[:3])
+        press(app, pygame.K_z)
+        assert app.san_log == ["e4", "e5"]
+
+    def test_a_game_from_a_position_with_black_to_move(self, app):
+        app.new_game(fen="4k3/8/8/8/8/8/8/4K2R b K - 0 40")
+        self.play(app, ["e8d7", "h1h7"])
+        assert app.log_lines() == [("40.", "...", "Kd7"), ("41.", "Rh7+", "")]
+
+    def test_the_log_follows_the_game_and_scrolls_back(self, app):
+        wheel = pygame.MOUSEWHEEL
+        self.play(app, self.GAME[:-2])  # 12 lines, one more than fit
+        assert gui.LOG_CAPACITY == 11
+        lines, first = app.visible_log_lines()
+        assert (lines[0][0], lines[-1][0], first) == ("2.", "12.", 1)
+        app.handle_event(pygame.event.Event(wheel, x=0, y=5))  # back
+        lines, first = app.visible_log_lines()
+        assert (lines[0][0], first, app.log_scroll) == ("1.", 0, 1)  # no further
+        app.handle_event(pygame.event.Event(wheel, x=0, y=-5))  # forward
+        assert app.log_scroll == 0
+        app.handle_event(pygame.event.Event(wheel, x=0, y=1))
+        self.play(app, self.GAME[-2:])  # a new move shows the newest again
+        assert app.log_scroll == 0
+        assert app.visible_log_lines()[0][-1] == ("13.", "Nxg5", "O-O")
+
+
 def play_scripted_game(monkeypatch, moves, human_plays_white=True, max_frames=600):
     """Run the real GUI loop (gui.main) headlessly. The human's moves are
     clicked on the board (to play Black, the "Black" button is clicked first);
